@@ -71,7 +71,7 @@ public partial class Form1 : Form
 
         BuildSidebar();
         BuildMainArea();
-        SelectNavigation("Dashboard");
+        SelectNavigation("Overview");
     }
 
     // =========================================================
@@ -164,17 +164,36 @@ public partial class Form1 : Form
         sidebar.Controls.Add(menuPanel);
         menuPanel.BringToFront();
 
-        AddNavigationButton(menuPanel, "Dashboard", "⌂", 0);
-        AddNavigationButton(menuPanel, "Customers", "♙", 52);
-        AddNavigationButton(menuPanel, "Leads", "◆", 104);
-        AddNavigationButton(menuPanel, "Projects", "▣", 156);
-        AddNavigationButton(menuPanel, "Quotations", "▤", 208);
-        AddNavigationButton(menuPanel, "Activities", "◷", 260);
-        AddNavigationButton(menuPanel, "Designers", "✎", 312);
-        AddNavigationButton(menuPanel, "Issues", "⚠", 364);
-        AddNavigationButton(menuPanel, "Feedback", "★", 416);
-        AddNavigationButton(menuPanel, "Reports", "▥", 468);
+        // =========================================================
+        // ROLE-BASED NAVIGATION — only add buttons the user can see
+        // =========================================================
+        var navItems = new (string Name, string Icon)[]
+            {
+                ("Overview",   "⌂"),
+                ("Customers",  "♙"),
+                ("Leads",      "◆"),
+                ("Projects",   "▣"),
+                ("Quotations", "▤"),
+                ("Activities", "◷"),
+                ("Designers",  "✎"),
+                ("Users",      "👥"),
+                ("Issues",     "⚠"),
+                ("Feedback",   "★"),
+                ("Analytics",  "◈"),
+                ("Retention",  "☷"),
+                ("Reports",    "▥")
+            };
+
+        int y = 0;
+        foreach (var item in navItems)
+        {
+            if (!CanSee(item.Name)) continue;
+            AddNavigationButton(menuPanel, item.Name, item.Icon, y);
+            y += 52;
+        }
     }
+
+    
 
     private void AddNavigationButton(Panel parent, string text, string icon, int top)
     {
@@ -319,11 +338,23 @@ public partial class Form1 : Form
     // =========================================================
     // NAVIGATION
     // =========================================================
-    private void SelectNavigation(string page)
+    public void SelectNavigation(string page)
     {
+        // Guard: reject navigation the user isn't allowed
+        if (!CanSee(page))
+        {
+            MessageBox.Show(
+                $"You don't have permission to view \"{page}\".",
+                "Access Denied",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
         foreach (var item in navigationButtons)
         {
             bool selected = item.Key.Equals(page, StringComparison.OrdinalIgnoreCase);
+            // ...
 
             item.Value.BackColor = selected ? ColorAccentSoft : ColorWhite;
             item.Value.ForeColor = selected ? Color.FromArgb(140, 85, 0) : Color.FromArgb(70, 78, 92);
@@ -334,17 +365,23 @@ public partial class Form1 : Form
         lblPageTitle.Text = page;
         lblPageSubtitle.Text = page switch
         {
-            "Dashboard" => "Overview of your company operations",
+            "Overview" => "Live snapshot of your company records",
             "Customers" => "Manage and view your client relationships",
             "Leads" => "Track potential customers and opportunities",
             "Projects" => "Monitor your interior design projects",
             "Quotations" => "Manage proposals and quotation records",
             "Activities" => "Track client interactions and follow-ups",
+            "Designers" => "Manage designers and view their ratings",
+            "Users" => "Manage managers, staff, and designers",
+            "Issues" => "Complaints, adjustments, and rework requests",
+            "Feedback" => "Customer feedback and ratings",
+            "Analytics" => "KPIs, trends, and retention intelligence",
+            "Retention" => "Customer segments & recommended actions",
             "Reports" => "Review company performance and records",
             _ => "Fuerto Interior Design Services CRM"
         };
 
-        if (page == "Dashboard")
+        if (page == "Overview")
             _ = LoadDashboardAsync();
         else if (page == "Customers")
             _ = LoadEntityPageAsync("Customers", "customers",
@@ -363,12 +400,18 @@ public partial class Form1 : Form
                 new[] { "ActivityType", "Subject", "Description", "CustomerName", "LeadName", "ProjectName", "ActivityDate", "Status", "Type", "Date" });
         else if (page == "Designers")
             BuildDesignersPage();
+        else if (page == "Users")
+            BuildUsersPage();
         else if (page == "Issues")
             _ = LoadEntityPageAsync("Issues", "issues",
                 new[] { "ProjectIssueId", "Title", "IssueType", "Severity", "Status", "ReportedAt" });
         else if (page == "Feedback")
             _ = LoadEntityPageAsync("Feedback", "feedback",
                 new[] { "ProjectFeedbackId", "ProjectId", "OverallRating", "TimelinessRating", "CommunicationRating", "ValueRating", "SubmittedAt" });
+        else if (page == "Analytics")
+            BuildBiDashboard();
+        else if (page == "Retention")
+            BuildRetentionPage();
         else if (page == "Reports")
             BuildReportsPage();
     }
@@ -685,11 +728,17 @@ public partial class Form1 : Form
         }
     }
 
+    // =========================================================
+    // ENTITY PAGE BUILDER (with pagination + improved edit dialogs)
+    // =========================================================
     private void BuildEntityPage(string title, string endpoint, List<JsonElement> records, string[] preferredColumns)
     {
         contentPanel.Controls.Clear();
         contentPanel.Padding = new Padding(32, 20, 32, 32);
 
+        // =========================================================
+        // HEADER (toolbar)
+        // =========================================================
         var header = new Panel
         {
             Dock = DockStyle.Top,
@@ -697,17 +746,18 @@ public partial class Form1 : Form
         };
         contentPanel.Controls.Add(header);
 
-        header.Controls.Add(new Label
+        var lblRecordCount = new Label
         {
             Text = $"{records.Count:N0} record{(records.Count == 1 ? "" : "s")}",
             ForeColor = ColorMuted,
             Font = new Font("Segoe UI", 10f),
             AutoSize = true,
             Location = new Point(0, 16)
-        });
+        };
+        header.Controls.Add(lblRecordCount);
 
         var refreshButton = CreateSecondaryButton("↻  Refresh", 110, 36);
-        refreshButton.Location = new Point(140, 8);
+        refreshButton.Location = new Point(160, 8);
         refreshButton.Click += (_, _) => _ = LoadEntityPageAsync(title, endpoint, preferredColumns);
         header.Controls.Add(refreshButton);
 
@@ -716,32 +766,35 @@ public partial class Form1 : Form
         header.Controls.Add(newButton);
 
         var editButton = CreateSecondaryButton("✎  Edit", 90, 36);
-        editButton.Location = new Point(272, 8);
+        editButton.Location = new Point(290, 8);
         header.Controls.Add(editButton);
 
         var deleteButton = CreateSecondaryButton("🗑️  Delete", 110, 36);
-        deleteButton.Location = new Point(370, 8);
+        deleteButton.Location = new Point(388, 8);
         header.Controls.Add(deleteButton);
 
         var searchBox = new TextBox
         {
             PlaceholderText = $"Search {title.ToLowerInvariant()}...",
-            Width = 280,
+            Width = 300,
             Height = 34,
             Font = new Font("Segoe UI", 9.5f),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Right
         };
-        searchBox.Left = Math.Max(900, contentPanel.ClientSize.Width - 340);
+        searchBox.Left = Math.Max(900, contentPanel.ClientSize.Width - 360);
         searchBox.Top = 10;
         header.Controls.Add(searchBox);
 
         contentPanel.Resize += (_, _) =>
         {
             if (!searchBox.IsDisposed)
-                searchBox.Left = Math.Max(900, contentPanel.ClientSize.Width - 340);
+                searchBox.Left = Math.Max(900, contentPanel.ClientSize.Width - 360);
         };
 
+        // =========================================================
+        // CARD (contains grid + pager)
+        // =========================================================
         var card = CreateCard("", "");
         card.Dock = DockStyle.Fill;
         contentPanel.Controls.Add(card);
@@ -760,11 +813,13 @@ public partial class Form1 : Form
                 Font = new Font("Segoe UI", 11f)
             });
 
-            // Still add workflow buttons even if empty
             AddWorkflowButtons(header, endpoint, null!, () => currentRecords);
             return;
         }
 
+        // =========================================================
+        // GRID
+        // =========================================================
         var grid = new DataGridView
         {
             Dock = DockStyle.Fill,
@@ -821,22 +876,125 @@ public partial class Form1 : Form
             });
         }
 
-        foreach (var record in currentRecords)
+        // =========================================================
+        // PAGINATION STATE
+        // =========================================================
+        const int PageSize = 17;
+        int currentPage = 1;
+
+        List<JsonElement> _renderRecords = new();
+        List<JsonElement> _filteredRecords = currentRecords.ToList();
+
+        // ---- Pager bar (declared BEFORE RenderPage) ----
+        var pager = new Panel
         {
-            var values = new object[columns.Count];
-            for (int i = 0; i < columns.Count; i++)
-                values[i] = GetValueFromJson(record, columns[i]) ?? "";
-            grid.Rows.Add(values);
+            Dock = DockStyle.Bottom,
+            Height = 52,
+            BackColor = Color.FromArgb(250, 251, 253)
+        };
+        card.Controls.Add(pager);
+
+        var btnPrev = new Button
+        {
+            Text = "◀  Prev",
+            Left = 12,
+            Top = 8,
+            Width = 90,
+            Height = 36,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ColorWhite,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        btnPrev.FlatAppearance.BorderColor = ColorBorder;
+        pager.Controls.Add(btnPrev);
+
+        var lblPageInfo = new Label
+        {
+            Left = 120,
+            Top = 18,
+            Width = 420,
+            Height = 24,
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+            ForeColor = ColorText
+        };
+        pager.Controls.Add(lblPageInfo);
+
+        var btnNext = new Button
+        {
+            Text = "Next  ▶",
+            Left = 560,
+            Top = 8,
+            Width = 90,
+            Height = 36,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = ColorWhite,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        btnNext.FlatAppearance.BorderColor = ColorBorder;
+        pager.Controls.Add(btnNext);
+
+        // =========================================================
+        // RENDER PAGE
+        // =========================================================
+        void RenderPage()
+        {
+            grid.Rows.Clear();
+
+            int totalPages = _filteredRecords.Count == 0
+                ? 1
+                : (int)Math.Ceiling(_filteredRecords.Count / (double)PageSize);
+
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            int start = (currentPage - 1) * PageSize;
+            int end = Math.Min(start + PageSize, _filteredRecords.Count);
+
+            _renderRecords = _filteredRecords.Skip(start).Take(PageSize).ToList();
+
+            foreach (var record in _renderRecords)
+            {
+                var values = new object[columns.Count];
+                for (int i = 0; i < columns.Count; i++)
+                    values[i] = GetValueFromJson(record, columns[i]) ?? "";
+                grid.Rows.Add(values);
+            }
+
+            lblPageInfo.Text = $"Page {currentPage} of {totalPages}   ·   " +
+                              $"Showing {start + 1}–{end} of {_filteredRecords.Count}";
+
+            btnPrev.Enabled = currentPage > 1;
+            btnNext.Enabled = currentPage < totalPages;
+            btnPrev.ForeColor = btnPrev.Enabled ? ColorText : Color.FromArgb(180, 186, 196);
+            btnNext.ForeColor = btnNext.Enabled ? ColorText : Color.FromArgb(180, 186, 196);
+
+            lblRecordCount.Text = $"{_filteredRecords.Count:N0} record{(_filteredRecords.Count == 1 ? "" : "s")}";
         }
 
+        btnPrev.Click += (_, _) =>
+        {
+            if (currentPage > 1) { currentPage--; RenderPage(); }
+        };
+        btnNext.Click += (_, _) =>
+        {
+            int totalPages = _filteredRecords.Count == 0
+                ? 1
+                : (int)Math.Ceiling(_filteredRecords.Count / (double)PageSize);
+            if (currentPage < totalPages) { currentPage++; RenderPage(); }
+        };
+
+        // =========================================================
+        // SEARCH
+        // =========================================================
         searchBox.TextChanged += (_, _) =>
         {
             var search = searchBox.Text.Trim();
-            grid.Rows.Clear();
 
-            var filtered = string.IsNullOrWhiteSpace(search)
-                ? records
-                : records.Where(r =>
+            _filteredRecords = string.IsNullOrWhiteSpace(search)
+                ? currentRecords.ToList()
+                : currentRecords.Where(r =>
                 {
                     foreach (var col in columns)
                     {
@@ -847,62 +1005,131 @@ public partial class Form1 : Form
                     return false;
                 }).ToList();
 
-            currentRecords = filtered.ToList();
-
-            foreach (var record in filtered)
-            {
-                var values = new object[columns.Count];
-                for (int i = 0; i < columns.Count; i++)
-                    values[i] = GetValueFromJson(record, columns[i]) ?? "";
-                grid.Rows.Add(values);
-            }
+            currentPage = 1;
+            RenderPage();
         };
 
-        // NEW button
+        // =========================================================
+        // NEW BUTTON
+        // =========================================================
         newButton.Click += async (_, _) =>
         {
+            // ---------- NEW PROJECT ----------
             if (string.Equals(endpoint, "projects", StringComparison.OrdinalIgnoreCase))
             {
-                using var dlg = new Form { Text = "New Project", Size = new Size(520, 420), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog };
-                var txtCode = new TextBox { Left = 20, Top = 24, Width = 460, PlaceholderText = "Project code" };
-                var txtName = new TextBox { Left = 20, Top = 64, Width = 460, PlaceholderText = "Project name" };
-                var cmbCustomer = new ComboBox { Left = 20, Top = 104, Width = 460, DropDownStyle = ComboBoxStyle.DropDownList };
-                var txtType = new TextBox { Left = 20, Top = 144, Width = 460, PlaceholderText = "Project type" };
-                var txtLocation = new TextBox { Left = 20, Top = 184, Width = 460, PlaceholderText = "Location" };
-                var dtStart = new DateTimePicker { Left = 20, Top = 224, Width = 220, Format = DateTimePickerFormat.Short };
-                var dtEnd = new DateTimePicker { Left = 260, Top = 224, Width = 220, Format = DateTimePickerFormat.Short };
-                var txtNotes = new TextBox { Left = 20, Top = 264, Width = 460, Height = 60, Multiline = true, PlaceholderText = "Notes" };
-                var btnOk = new Button { Text = "Create", Left = 300, Width = 80, Top = 336, DialogResult = DialogResult.OK };
-                var btnCancel = new Button { Text = "Cancel", Left = 392, Width = 80, Top = 336, DialogResult = DialogResult.Cancel };
+                using var dlg = new Form
+                {
+                    Text = "New Project",
+                    Size = new Size(560, 500),
+                    StartPosition = FormStartPosition.CenterParent,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false,
+                    BackColor = ColorWhite
+                };
 
-                dlg.Controls.Add(new Label { Text = "Code", Left = 20, Top = 6 });
-                dlg.Controls.Add(new Label { Text = "Name", Left = 20, Top = 46 });
-                dlg.Controls.Add(new Label { Text = "Customer", Left = 20, Top = 86 });
-                dlg.Controls.Add(new Label { Text = "Type", Left = 20, Top = 126 });
-                dlg.Controls.Add(new Label { Text = "Location", Left = 260, Top = 126 });
-                dlg.Controls.Add(new Label { Text = "Start", Left = 20, Top = 206 });
-                dlg.Controls.Add(new Label { Text = "End", Left = 260, Top = 206 });
+                // Header
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Create New Project",
+                    Font = new Font("Segoe UI", 14f, FontStyle.Bold),
+                    ForeColor = ColorText,
+                    AutoSize = true,
+                    Location = new Point(24, 20)
+                });
 
-                dlg.Controls.Add(txtCode);
-                dlg.Controls.Add(txtName);
+                int y = 60;
+
+                AddField(dlg, "Project Code", ref y);
+                var txtCode = AddTextBox(dlg, y); y += 46;
+
+                AddField(dlg, "Project Name", ref y);
+                var txtName = AddTextBox(dlg, y); y += 46;
+
+                AddField(dlg, "Customer", ref y);
+                var cmbCustomer = new ComboBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Height = 30,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
                 dlg.Controls.Add(cmbCustomer);
-                dlg.Controls.Add(txtType);
-                dlg.Controls.Add(txtLocation);
+                y += 46;
+
+                AddField(dlg, "Project Type", ref y);
+                var txtType = AddTextBox(dlg, y); y += 46;
+
+                AddField(dlg, "Location", ref y);
+                var txtLocation = AddTextBox(dlg, y); y += 46;
+
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Start Date",
+                    Left = 24,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Target End Date",
+                    Left = 284,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                y += 22;
+                var dtStart = new DateTimePicker { Left = 24, Top = y, Width = 240, Format = DateTimePickerFormat.Short, Font = new Font("Segoe UI", 9.5f) };
+                var dtEnd = new DateTimePicker { Left = 284, Top = y, Width = 240, Format = DateTimePickerFormat.Short, Font = new Font("Segoe UI", 9.5f) };
                 dlg.Controls.Add(dtStart);
                 dlg.Controls.Add(dtEnd);
+                y += 46;
+
+                AddField(dlg, "Notes", ref y);
+                var txtNotes = new TextBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Height = 60,
+                    Multiline = true,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
                 dlg.Controls.Add(txtNotes);
+                y += 76;
+
+                var btnOk = MakePrimaryButton("Create", 110);
+                btnOk.Left = 414;
+                btnOk.Top = y;
+                btnOk.DialogResult = DialogResult.OK;
                 dlg.Controls.Add(btnOk);
+
+                var btnCancel = MakeSecondaryButton("Cancel", 90);
+                btnCancel.Left = 314;
+                btnCancel.Top = y;
+                btnCancel.DialogResult = DialogResult.Cancel;
                 dlg.Controls.Add(btnCancel);
 
+                dlg.ClientSize = new Size(548, y + 60);
+
+                // Load customers
                 try
                 {
                     var customers = await GetArrayAsync("customers");
                     cmbCustomer.Items.AddRange(customers.Select(c => new
                     {
                         Element = c,
-                        Text = (GetString(c, "FirstName") ?? "Unnamed") + " " + (GetString(c, "LastName") ?? "") + " (ID:" + (GetValueFromJson(c, "CustomerId") ?? GetValueFromJson(c, "Id")) + ")"
+                        Text = $"{GetString(c, "FirstName")} {GetString(c, "LastName")}  (ID:{GetValueFromJson(c, "CustomerId") ?? GetValueFromJson(c, "Id")})"
                     }).Cast<object>().ToArray());
                     cmbCustomer.DisplayMember = "Text";
+                    if (cmbCustomer.Items.Count > 0) cmbCustomer.SelectedIndex = 0;
                 }
                 catch { }
 
@@ -937,40 +1164,117 @@ public partial class Form1 : Form
                 return;
             }
 
+            // ---------- NEW QUOTATION ----------
             if (string.Equals(endpoint, "quotations", StringComparison.OrdinalIgnoreCase))
             {
-                using var dlg = new Form { Text = "New Quotation", Size = new Size(520, 360), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog };
-                var cmbProject = new ComboBox { Left = 20, Top = 24, Width = 460, DropDownStyle = ComboBoxStyle.DropDownList };
-
-                // Show a note instead of an editable textbox
-                var lblNumberInfo = new Label
+                using var dlg = new Form
                 {
-                    Left = 20,
-                    Top = 64,
-                    Width = 460,
-                    Height = 22,
-                    Text = "Quotation # will be auto-generated (e.g. QT-202609-0001)",
-                    ForeColor = Color.FromArgb(110, 118, 132),
-                    Font = new Font("Segoe UI", 8.5f, FontStyle.Italic)
+                    Text = "New Quotation",
+                    Size = new Size(560, 440),
+                    StartPosition = FormStartPosition.CenterParent,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false,
+                    BackColor = ColorWhite
                 };
-                var txtSubtotal = new TextBox { Left = 20, Top = 104, Width = 220, PlaceholderText = "Subtotal" };
-                var txtDiscount = new TextBox { Left = 260, Top = 104, Width = 220, PlaceholderText = "Discount" };
-                var txtNotes = new TextBox { Left = 20, Top = 144, Width = 460, Height = 80, Multiline = true, PlaceholderText = "Notes" };
-                var btnOk = new Button { Text = "Create", Left = 300, Width = 80, Top = 240, DialogResult = DialogResult.OK };
-                var btnCancel = new Button { Text = "Cancel", Left = 392, Width = 80, Top = 240, DialogResult = DialogResult.Cancel };
 
-                dlg.Controls.Add(new Label { Text = "Project", Left = 20, Top = 6 });
-                dlg.Controls.Add(new Label { Text = "Quotation #", Left = 20, Top = 46 });
-                dlg.Controls.Add(new Label { Text = "Subtotal", Left = 20, Top = 86 });
-                dlg.Controls.Add(new Label { Text = "Discount", Left = 260, Top = 86 });
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Create New Quotation",
+                    Font = new Font("Segoe UI", 14f, FontStyle.Bold),
+                    ForeColor = ColorText,
+                    AutoSize = true,
+                    Location = new Point(24, 20)
+                });
 
+                int y = 60;
+
+                AddField(dlg, "Project", ref y);
+                var cmbProject = new ComboBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Height = 30,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
                 dlg.Controls.Add(cmbProject);
-                dlg.Controls.Add(lblNumberInfo);
+                y += 46;
+
+                // Info bar
+                var infoBar = new Panel
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Height = 34,
+                    BackColor = Color.FromArgb(255, 245, 225)
+                };
+                dlg.Controls.Add(infoBar);
+                infoBar.Controls.Add(new Label
+                {
+                    Text = "💡  Quotation # will be auto-generated (e.g. QT-202609-0001)",
+                    Font = new Font("Segoe UI", 8.5f, FontStyle.Italic),
+                    ForeColor = Color.FromArgb(160, 95, 0),
+                    AutoSize = true,
+                    Location = new Point(10, 9)
+                });
+                y += 46;
+
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Subtotal (₱)",
+                    Left = 24,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Discount (₱)",
+                    Left = 284,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                y += 22;
+                var txtSubtotal = new TextBox { Left = 24, Top = y, Width = 240, Font = new Font("Segoe UI", 10f) };
+                var txtDiscount = new TextBox { Left = 284, Top = y, Width = 240, Font = new Font("Segoe UI", 10f), Text = "0" };
                 dlg.Controls.Add(txtSubtotal);
                 dlg.Controls.Add(txtDiscount);
+                y += 46;
+
+                AddField(dlg, "Notes", ref y);
+                var txtNotes = new TextBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Height = 60,
+                    Multiline = true,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
                 dlg.Controls.Add(txtNotes);
+                y += 76;
+
+                var btnOk = MakePrimaryButton("Create", 110);
+                btnOk.Left = 414;
+                btnOk.Top = y;
+                btnOk.DialogResult = DialogResult.OK;
                 dlg.Controls.Add(btnOk);
+
+                var btnCancel = MakeSecondaryButton("Cancel", 90);
+                btnCancel.Left = 314;
+                btnCancel.Top = y;
+                btnCancel.DialogResult = DialogResult.Cancel;
                 dlg.Controls.Add(btnCancel);
+
+                dlg.ClientSize = new Size(548, y + 60);
 
                 try
                 {
@@ -978,9 +1282,10 @@ public partial class Form1 : Form
                     cmbProject.Items.AddRange(projects.Select(p => new
                     {
                         Element = p,
-                        Text = (GetString(p, "ProjectName") ?? "Unnamed") + " (ID:" + (GetValueFromJson(p, "ProjectId") ?? GetValueFromJson(p, "Id")) + ")"
+                        Text = $"{GetString(p, "ProjectName")}  (ID:{GetValueFromJson(p, "ProjectId") ?? GetValueFromJson(p, "Id")})"
                     }).Cast<object>().ToArray());
                     cmbProject.DisplayMember = "Text";
+                    if (cmbProject.Items.Count > 0) cmbProject.SelectedIndex = 0;
                 }
                 catch { }
 
@@ -1002,7 +1307,6 @@ public partial class Form1 : Form
 
                     var body = new Dictionary<string, object?>
                     {
-                        // quotationNumber removed — API generates it automatically
                         ["projectId"] = projectIdValue,
                         ["subtotal"] = subtotal,
                         ["discount"] = discount,
@@ -1015,28 +1319,56 @@ public partial class Form1 : Form
                 return;
             }
 
-            // Fallback create
-            using var dlgFallback = new Form { Text = $"New {title.TrimEnd('s')}", Size = new Size(420, 300), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog };
-            var txtFirst = new TextBox { Left = 20, Top = 24, Width = 360, PlaceholderText = "First name" };
-            var txtLast = new TextBox { Left = 20, Top = 64, Width = 360, PlaceholderText = "Last name" };
-            var txtEmail = new TextBox { Left = 20, Top = 104, Width = 360, PlaceholderText = "Email (optional)" };
-            var txtPhone = new TextBox { Left = 20, Top = 144, Width = 360, PlaceholderText = "Phone (optional)" };
-            var btnOkF = new Button { Text = "Create", Left = 200, Width = 80, Top = 200, DialogResult = DialogResult.OK };
-            var btnCancelF = new Button { Text = "Cancel", Left = 292, Width = 80, Top = 200, DialogResult = DialogResult.Cancel };
+            // ---------- FALLBACK (Customers, Leads) ----------
+            using var dlgGen = new Form
+            {
+                Text = $"New {title.TrimEnd('s')}",
+                Size = new Size(480, 400),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                BackColor = ColorWhite
+            };
 
-            dlgFallback.Controls.Add(new Label { Text = "First name", Left = 20, Top = 6 });
-            dlgFallback.Controls.Add(new Label { Text = "Last name", Left = 20, Top = 46 });
-            dlgFallback.Controls.Add(new Label { Text = "Email", Left = 20, Top = 86 });
-            dlgFallback.Controls.Add(new Label { Text = "Phone", Left = 20, Top = 126 });
+            dlgGen.Controls.Add(new Label
+            {
+                Text = $"Create New {title.TrimEnd('s')}",
+                Font = new Font("Segoe UI", 14f, FontStyle.Bold),
+                ForeColor = ColorText,
+                AutoSize = true,
+                Location = new Point(24, 20)
+            });
 
-            dlgFallback.Controls.Add(txtFirst);
-            dlgFallback.Controls.Add(txtLast);
-            dlgFallback.Controls.Add(txtEmail);
-            dlgFallback.Controls.Add(txtPhone);
-            dlgFallback.Controls.Add(btnOkF);
-            dlgFallback.Controls.Add(btnCancelF);
+            int gy = 60;
 
-            if (dlgFallback.ShowDialog(this) == DialogResult.OK)
+            AddField(dlgGen, "First Name", ref gy);
+            var txtFirst = AddTextBox(dlgGen, gy); gy += 46;
+
+            AddField(dlgGen, "Last Name", ref gy);
+            var txtLast = AddTextBox(dlgGen, gy); gy += 46;
+
+            AddField(dlgGen, "Email", ref gy);
+            var txtEmail = AddTextBox(dlgGen, gy); gy += 46;
+
+            AddField(dlgGen, "Phone", ref gy);
+            var txtPhone = AddTextBox(dlgGen, gy); gy += 56;
+
+            var btnOkF = MakePrimaryButton("Create", 110);
+            btnOkF.Left = 334;
+            btnOkF.Top = gy;
+            btnOkF.DialogResult = DialogResult.OK;
+            dlgGen.Controls.Add(btnOkF);
+
+            var btnCancelF = MakeSecondaryButton("Cancel", 90);
+            btnCancelF.Left = 234;
+            btnCancelF.Top = gy;
+            btnCancelF.DialogResult = DialogResult.Cancel;
+            dlgGen.Controls.Add(btnCancelF);
+
+            dlgGen.ClientSize = new Size(468, gy + 60);
+
+            if (dlgGen.ShowDialog(this) == DialogResult.OK)
             {
                 var body = new Dictionary<string, object?>
                 {
@@ -1051,14 +1383,20 @@ public partial class Form1 : Form
             }
         };
 
-        // EDIT button
+        // =========================================================
+        // EDIT BUTTON
+        // =========================================================
         editButton.Click += async (_, _) =>
         {
-            if (grid.SelectedRows.Count == 0) { MessageBox.Show("Select a record to edit.", "Edit"); return; }
-            var idx = grid.SelectedRows[0].Index;
-            if (idx < 0 || idx >= currentRecords.Count) return;
+            if (grid.SelectedRows.Count == 0)
+            {
+                MessageBox.Show("Select a record to edit.", "Edit");
+                return;
+            }
+            var visibleIdx = grid.SelectedRows[0].Index;
+            if (visibleIdx < 0 || visibleIdx >= _renderRecords.Count) return;
 
-            var record = currentRecords[idx];
+            var record = _renderRecords[visibleIdx];
             var idObj = endpoint.ToLower() switch
             {
                 "customers" => GetValueFromJson(record, "CustomerId"),
@@ -1079,30 +1417,543 @@ public partial class Form1 : Form
                 return;
             }
 
-            // Simple generic edit (email/phone/name)
-            using var dlg = new Form { Text = $"Edit", Size = new Size(420, 360), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog };
-            var txtFirst = new TextBox { Left = 20, Top = 24, Width = 360, Text = GetString(elem, "FirstName", "firstName") ?? "" };
-            var txtLast = new TextBox { Left = 20, Top = 64, Width = 360, Text = GetString(elem, "LastName", "lastName") ?? "" };
-            var txtEmail = new TextBox { Left = 20, Top = 104, Width = 360, Text = GetString(elem, "Email", "email") ?? "" };
-            var txtPhone = new TextBox { Left = 20, Top = 144, Width = 360, Text = GetString(elem, "Phone", "phone") ?? "" };
-            var chkActive = new CheckBox { Left = 20, Top = 184, Width = 200, Checked = (GetValueFromJson(elem, "IsActive") as bool?) ?? true, Text = "Active" };
-            var btnOk = new Button { Text = "Save", Left = 200, Width = 80, Top = 240, DialogResult = DialogResult.OK };
-            var btnCancel = new Button { Text = "Cancel", Left = 292, Width = 80, Top = 240, DialogResult = DialogResult.Cancel };
+            // =====================================================
+            // EDIT QUOTATION
+            // =====================================================
+            if (string.Equals(endpoint, "quotations", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlg = new Form
+                {
+                    Text = "Edit Quotation",
+                    Size = new Size(580, 500),
+                    StartPosition = FormStartPosition.CenterParent,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false,
+                    BackColor = ColorWhite
+                };
 
-            dlg.Controls.Add(new Label { Text = "First name", Left = 20, Top = 6 });
-            dlg.Controls.Add(new Label { Text = "Last name", Left = 20, Top = 46 });
-            dlg.Controls.Add(new Label { Text = "Email", Left = 20, Top = 86 });
-            dlg.Controls.Add(new Label { Text = "Phone", Left = 20, Top = 126 });
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Edit Quotation",
+                    Font = new Font("Segoe UI", 14f, FontStyle.Bold),
+                    ForeColor = ColorText,
+                    AutoSize = true,
+                    Location = new Point(24, 20)
+                });
 
-            dlg.Controls.Add(txtFirst);
-            dlg.Controls.Add(txtLast);
-            dlg.Controls.Add(txtEmail);
-            dlg.Controls.Add(txtPhone);
-            dlg.Controls.Add(chkActive);
-            dlg.Controls.Add(btnOk);
-            dlg.Controls.Add(btnCancel);
+                int y = 60;
 
-            if (dlg.ShowDialog(this) == DialogResult.OK)
+                // Quotation number (read-only)
+                AddField(dlg, "Quotation # (auto-generated — cannot be changed)", ref y);
+                var txtNumber = new TextBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Font = new Font("Segoe UI", 9.5f),
+                    Text = GetString(elem, "QuotationNumber", "quotationNumber") ?? "",
+                    ReadOnly = true,
+                    BackColor = Color.FromArgb(245, 246, 248),
+                    ForeColor = Color.FromArgb(110, 118, 132)
+                };
+                dlg.Controls.Add(txtNumber);
+                y += 46;
+
+                // Project
+                AddField(dlg, "Project", ref y);
+                var cmbProject = new ComboBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Height = 30,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
+                dlg.Controls.Add(cmbProject);
+                y += 46;
+
+                // Subtotal + Discount (side by side)
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Subtotal (₱)",
+                    Left = 24,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Discount (₱)",
+                    Left = 284,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                y += 22;
+                var txtSubtotal = new TextBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 240,
+                    Font = new Font("Segoe UI", 10f),
+                    Text = GetString(elem, "Subtotal", "subtotal") ?? "0"
+                };
+                var txtDiscount = new TextBox
+                {
+                    Left = 284,
+                    Top = y,
+                    Width = 240,
+                    Font = new Font("Segoe UI", 10f),
+                    Text = GetString(elem, "Discount", "discount") ?? "0"
+                };
+                dlg.Controls.Add(txtSubtotal);
+                dlg.Controls.Add(txtDiscount);
+                y += 46;
+
+                // Status + Valid Until (side by side)
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Status",
+                    Left = 24,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Valid Until",
+                    Left = 284,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                y += 22;
+                var cmbStatus = new ComboBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 240,
+                    Height = 30,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
+                cmbStatus.Items.AddRange(new[] { "Draft", "Issued", "Accepted", "Rejected", "Expired" });
+                var dtValid = new DateTimePicker
+                {
+                    Left = 284,
+                    Top = y,
+                    Width = 240,
+                    Format = DateTimePickerFormat.Short,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
+                dlg.Controls.Add(cmbStatus);
+                dlg.Controls.Add(dtValid);
+                y += 46;
+
+                // Notes
+                AddField(dlg, "Notes", ref y);
+                var txtNotes = new TextBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Height = 70,
+                    Multiline = true,
+                    Font = new Font("Segoe UI", 9.5f),
+                    Text = GetString(elem, "Notes", "notes") ?? ""
+                };
+                dlg.Controls.Add(txtNotes);
+                y += 86;
+
+                // Buttons
+                var btnOk = MakePrimaryButton("Save", 110);
+                btnOk.Left = 414;
+                btnOk.Top = y;
+                btnOk.DialogResult = DialogResult.OK;
+                dlg.Controls.Add(btnOk);
+
+                var btnCancel = MakeSecondaryButton("Cancel", 90);
+                btnCancel.Left = 314;
+                btnCancel.Top = y;
+                btnCancel.DialogResult = DialogResult.Cancel;
+                dlg.Controls.Add(btnCancel);
+
+                dlg.ClientSize = new Size(548, y + 60);
+
+                // Parse valid until
+                if (DateTime.TryParse(GetString(elem, "ValidUntil", "validUntil"), out var vd))
+                    dtValid.Value = vd;
+
+                // Load projects and select current
+                try
+                {
+                    var projects = await GetArrayAsync("projects");
+                    var items = projects.Select(p => new
+                    {
+                        Element = p,
+                        Text = $"{GetString(p, "ProjectName")}  (ID:{GetValueFromJson(p, "ProjectId") ?? GetValueFromJson(p, "Id")})"
+                    }).Cast<object>().ToArray();
+                    cmbProject.Items.AddRange(items);
+                    cmbProject.DisplayMember = "Text";
+
+                    var curProjectId = GetValueFromJson(elem, "ProjectId") ?? GetValueFromJson(elem, "projectId");
+                    if (curProjectId != null)
+                    {
+                        for (int i = 0; i < items.Length; i++)
+                        {
+                            var elemProp = items[i].GetType().GetProperty("Element");
+                            if (elemProp != null)
+                            {
+                                var je = (JsonElement)elemProp.GetValue(items[i])!;
+                                var val = GetValueFromJson(je, "ProjectId") ?? GetValueFromJson(je, "Id");
+                                if (val != null && val.ToString() == curProjectId.ToString()) { cmbProject.SelectedIndex = i; break; }
+                            }
+                        }
+                    }
+                    if (cmbProject.SelectedIndex < 0 && cmbProject.Items.Count > 0) cmbProject.SelectedIndex = 0;
+                }
+                catch { }
+
+                var curStatus = GetString(elem, "Status", "status");
+                if (!string.IsNullOrWhiteSpace(curStatus) && cmbStatus.Items.Contains(curStatus))
+                    cmbStatus.SelectedItem = curStatus;
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    object? projectIdValue = null;
+                    if (cmbProject.SelectedItem != null)
+                    {
+                        var elemProp = cmbProject.SelectedItem.GetType().GetProperty("Element");
+                        if (elemProp != null)
+                        {
+                            var je = (JsonElement)elemProp.GetValue(cmbProject.SelectedItem)!;
+                            projectIdValue = GetValueFromJson(je, "ProjectId") ?? GetValueFromJson(je, "Id");
+                        }
+                    }
+
+                    var subtotal = 0m; decimal.TryParse(txtSubtotal.Text, out subtotal);
+                    var discount = 0m; decimal.TryParse(txtDiscount.Text, out discount);
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectIdValue,
+                        ["subtotal"] = subtotal,
+                        ["discount"] = discount,
+                        ["status"] = cmbStatus.SelectedItem?.ToString() ?? curStatus,
+                        ["validUntil"] = dtValid.Value.ToString("o"),
+                        ["notes"] = txtNotes.Text.Trim()
+                    };
+
+                    await PutObjectAsync($"{endpoint}/{id}", body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            // =====================================================
+            // EDIT PROJECT
+            // =====================================================
+            if (string.Equals(endpoint, "projects", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlg = new Form
+                {
+                    Text = "Edit Project",
+                    Size = new Size(580, 580),
+                    StartPosition = FormStartPosition.CenterParent,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    MaximizeBox = false,
+                    MinimizeBox = false,
+                    BackColor = ColorWhite
+                };
+
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Edit Project",
+                    Font = new Font("Segoe UI", 14f, FontStyle.Bold),
+                    ForeColor = ColorText,
+                    AutoSize = true,
+                    Location = new Point(24, 20)
+                });
+
+                int y = 60;
+
+                AddField(dlg, "Project Code", ref y);
+                var txtCode = AddTextBox(dlg, y);
+                txtCode.Text = GetString(elem, "ProjectCode", "projectCode") ?? "";
+                y += 46;
+
+                AddField(dlg, "Project Name", ref y);
+                var txtName = AddTextBox(dlg, y);
+                txtName.Text = GetString(elem, "ProjectName", "projectName") ?? "";
+                y += 46;
+
+                AddField(dlg, "Customer", ref y);
+                var cmbCustomer = new ComboBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Height = 30,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
+                dlg.Controls.Add(cmbCustomer);
+                y += 46;
+
+                // Type + Location (side by side)
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Type",
+                    Left = 24,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Location",
+                    Left = 284,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                y += 22;
+                var txtType = new TextBox { Left = 24, Top = y, Width = 240, Font = new Font("Segoe UI", 9.5f) };
+                txtType.Text = GetString(elem, "ProjectType", "projectType") ?? "";
+                var txtLocation = new TextBox { Left = 284, Top = y, Width = 240, Font = new Font("Segoe UI", 9.5f) };
+                txtLocation.Text = GetString(elem, "Location", "location") ?? "";
+                dlg.Controls.Add(txtType);
+                dlg.Controls.Add(txtLocation);
+                y += 46;
+
+                // Start + End (side by side)
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Start Date",
+                    Left = 24,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                dlg.Controls.Add(new Label
+                {
+                    Text = "Target End Date",
+                    Left = 284,
+                    Top = y,
+                    Width = 240,
+                    Height = 20,
+                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(70, 78, 92)
+                });
+                y += 22;
+                var dtStart = new DateTimePicker { Left = 24, Top = y, Width = 240, Format = DateTimePickerFormat.Short, Font = new Font("Segoe UI", 9.5f) };
+                var dtEnd = new DateTimePicker { Left = 284, Top = y, Width = 240, Format = DateTimePickerFormat.Short, Font = new Font("Segoe UI", 9.5f) };
+                dlg.Controls.Add(dtStart);
+                dlg.Controls.Add(dtEnd);
+                y += 46;
+
+                // Status
+                AddField(dlg, "Status", ref y);
+                var cmbStatus = new ComboBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 500,
+                    Height = 30,
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Font = new Font("Segoe UI", 9.5f)
+                };
+                cmbStatus.Items.AddRange(new[] { "Planning", "In Progress", "Completed", "On Hold", "Cancelled" });
+                dlg.Controls.Add(cmbStatus);
+                y += 46;
+
+                // Active checkbox
+                var chkActive = new CheckBox
+                {
+                    Left = 24,
+                    Top = y,
+                    Width = 300,
+                    Height = 24,
+                    Font = new Font("Segoe UI", 9.5f),
+                    Text = "Active Project",
+                    Checked = (GetValueFromJson(elem, "IsActive") as bool?) ?? true
+                };
+                dlg.Controls.Add(chkActive);
+                y += 36;
+
+                // Buttons
+                var btnOk = MakePrimaryButton("Save", 110);
+                btnOk.Left = 414;
+                btnOk.Top = y;
+                btnOk.DialogResult = DialogResult.OK;
+                dlg.Controls.Add(btnOk);
+
+                var btnCancel = MakeSecondaryButton("Cancel", 90);
+                btnCancel.Left = 314;
+                btnCancel.Top = y;
+                btnCancel.DialogResult = DialogResult.Cancel;
+                dlg.Controls.Add(btnCancel);
+
+                dlg.ClientSize = new Size(548, y + 60);
+
+                // Parse dates
+                if (DateTime.TryParse(GetString(elem, "StartDate", "startDate"), out var sd)) dtStart.Value = sd;
+                if (DateTime.TryParse(GetString(elem, "TargetEndDate", "targetEndDate", "endDate"), out var ed)) dtEnd.Value = ed;
+
+                // Load customers
+                try
+                {
+                    var customers = await GetArrayAsync("customers");
+                    var items = customers.Select(c => new
+                    {
+                        Element = c,
+                        Text = $"{GetString(c, "FirstName")} {GetString(c, "LastName")}  (ID:{GetValueFromJson(c, "CustomerId") ?? GetValueFromJson(c, "Id")})"
+                    }).Cast<object>().ToArray();
+                    cmbCustomer.Items.AddRange(items);
+                    cmbCustomer.DisplayMember = "Text";
+
+                    var curCustomerId = GetValueFromJson(elem, "CustomerId") ?? GetValueFromJson(elem, "customerId");
+                    if (curCustomerId != null)
+                    {
+                        for (int i = 0; i < items.Length; i++)
+                        {
+                            var elemProp = items[i].GetType().GetProperty("Element");
+                            if (elemProp != null)
+                            {
+                                var je = (JsonElement)elemProp.GetValue(items[i])!;
+                                var val = GetValueFromJson(je, "CustomerId") ?? GetValueFromJson(je, "Id");
+                                if (val != null && val.ToString() == curCustomerId.ToString()) { cmbCustomer.SelectedIndex = i; break; }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                var curStatus = GetString(elem, "Status", "status");
+                if (!string.IsNullOrWhiteSpace(curStatus) && cmbStatus.Items.Contains(curStatus))
+                    cmbStatus.SelectedItem = curStatus;
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    object? customerIdValue = null;
+                    if (cmbCustomer.SelectedItem != null)
+                    {
+                        var elemProp = cmbCustomer.SelectedItem.GetType().GetProperty("Element");
+                        if (elemProp != null)
+                        {
+                            var je = (JsonElement)elemProp.GetValue(cmbCustomer.SelectedItem)!;
+                            customerIdValue = GetValueFromJson(je, "CustomerId") ?? GetValueFromJson(je, "Id");
+                        }
+                    }
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["projectCode"] = txtCode.Text.Trim(),
+                        ["projectName"] = txtName.Text.Trim(),
+                        ["customerId"] = customerIdValue,
+                        ["projectType"] = txtType.Text.Trim(),
+                        ["location"] = txtLocation.Text.Trim(),
+                        ["startDate"] = dtStart.Value.ToString("o"),
+                        ["targetEndDate"] = dtEnd.Value.ToString("o"),
+                        ["status"] = cmbStatus.SelectedItem?.ToString() ?? curStatus,
+                        ["isActive"] = chkActive.Checked
+                    };
+
+                    await PutObjectAsync($"{endpoint}/{id}", body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            // =====================================================
+            // GENERIC EDIT (Customers, Leads, etc.)
+            // =====================================================
+            using var dlgGen = new Form
+            {
+                Text = $"Edit {title.TrimEnd('s')}",
+                Size = new Size(480, 400),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                BackColor = ColorWhite
+            };
+
+            dlgGen.Controls.Add(new Label
+            {
+                Text = $"Edit {title.TrimEnd('s')}",
+                Font = new Font("Segoe UI", 14f, FontStyle.Bold),
+                ForeColor = ColorText,
+                AutoSize = true,
+                Location = new Point(24, 20)
+            });
+
+            int gy = 60;
+
+            AddField(dlgGen, "First Name", ref gy);
+            var txtFirst = AddTextBox(dlgGen, gy);
+            txtFirst.Text = GetString(elem, "FirstName", "firstName") ?? "";
+            gy += 46;
+
+            AddField(dlgGen, "Last Name", ref gy);
+            var txtLast = AddTextBox(dlgGen, gy);
+            txtLast.Text = GetString(elem, "LastName", "lastName") ?? "";
+            gy += 46;
+
+            AddField(dlgGen, "Email", ref gy);
+            var txtEmail = AddTextBox(dlgGen, gy);
+            txtEmail.Text = GetString(elem, "Email", "email") ?? "";
+            gy += 46;
+
+            AddField(dlgGen, "Phone", ref gy);
+            var txtPhone = AddTextBox(dlgGen, gy);
+            txtPhone.Text = GetString(elem, "Phone", "phone") ?? "";
+            gy += 46;
+
+            var chkActiveGen = new CheckBox
+            {
+                Left = 24,
+                Top = gy,
+                Width = 300,
+                Height = 24,
+                Font = new Font("Segoe UI", 9.5f),
+                Text = "Active",
+                Checked = (GetValueFromJson(elem, "IsActive") as bool?) ?? true
+            };
+            dlgGen.Controls.Add(chkActiveGen);
+            gy += 36;
+
+            var btnOkGen = MakePrimaryButton("Save", 110);
+            btnOkGen.Left = 334;
+            btnOkGen.Top = gy;
+            btnOkGen.DialogResult = DialogResult.OK;
+            dlgGen.Controls.Add(btnOkGen);
+
+            var btnCancelGen = MakeSecondaryButton("Cancel", 90);
+            btnCancelGen.Left = 234;
+            btnCancelGen.Top = gy;
+            btnCancelGen.DialogResult = DialogResult.Cancel;
+            dlgGen.Controls.Add(btnCancelGen);
+
+            dlgGen.ClientSize = new Size(468, gy + 60);
+
+            if (dlgGen.ShowDialog(this) == DialogResult.OK)
             {
                 var body = new Dictionary<string, object?>
                 {
@@ -1110,7 +1961,7 @@ public partial class Form1 : Form
                     ["lastName"] = txtLast.Text.Trim(),
                     ["email"] = string.IsNullOrWhiteSpace(txtEmail.Text) ? null : txtEmail.Text.Trim(),
                     ["phone"] = string.IsNullOrWhiteSpace(txtPhone.Text) ? null : txtPhone.Text.Trim(),
-                    ["isActive"] = chkActive.Checked
+                    ["isActive"] = chkActiveGen.Checked
                 };
 
                 await PutObjectAsync($"{endpoint}/{id}", body);
@@ -1118,14 +1969,20 @@ public partial class Form1 : Form
             }
         };
 
-        // DELETE button
+        // =========================================================
+        // DELETE BUTTON
+        // =========================================================
         deleteButton.Click += async (_, _) =>
         {
-            if (grid.SelectedRows.Count == 0) { MessageBox.Show("Select a record to delete.", "Delete"); return; }
-            var idx = grid.SelectedRows[0].Index;
-            if (idx < 0 || idx >= currentRecords.Count) return;
+            if (grid.SelectedRows.Count == 0)
+            {
+                MessageBox.Show("Select a record to delete.", "Delete");
+                return;
+            }
+            var visibleIdx = grid.SelectedRows[0].Index;
+            if (visibleIdx < 0 || visibleIdx >= _renderRecords.Count) return;
 
-            var record = currentRecords[idx];
+            var record = _renderRecords[visibleIdx];
             var idObj = endpoint.ToLower() switch
             {
                 "customers" => GetValueFromJson(record, "CustomerId"),
@@ -1139,18 +1996,90 @@ public partial class Form1 : Form
             if (idObj == null) { MessageBox.Show("Cannot determine record id.", "Delete"); return; }
             var id = idObj.ToString();
 
-            if (MessageBox.Show("Are you sure you want to delete this record?", "Confirm", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            if (MessageBox.Show("Are you sure you want to delete this record?", "Confirm", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
-            await DeleteAsync($"{endpoint}/{id}");
-            await LoadEntityPageAsync(title, endpoint, preferredColumns);
+            try
+            {
+                await DeleteAsync($"{endpoint}/{id}");
+                await LoadEntityPageAsync(title, endpoint, preferredColumns);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Delete failed:\n\n" + ex.Message, "Error");
+            }
         };
 
+        // =========================================================
+        // ATTACH GRID + WORKFLOW BUTTONS
+        // =========================================================
         card.Controls.Add(grid);
+        grid.BringToFront();
 
-        // Attach workflow buttons for this page
         List<JsonElement> GetRecords() => currentRecords;
         AddWorkflowButtons(header, endpoint, grid, GetRecords);
+
+        // =========================================================
+        // INITIAL RENDER
+        // =========================================================
+        RenderPage();
     }
+
+    // =========================================================
+    // FORM HELPERS — for consistent UI styling
+    // =========================================================
+    private void AddField(Form parent, string label, ref int y)
+    {
+        parent.Controls.Add(new Label
+        {
+            Text = label,
+            Left = 24,
+            Top = y,
+            Width = 500,
+            Height = 20,
+            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(70, 78, 92)
+        });
+        y += 22;
+    }
+
+    private TextBox AddTextBox(Form parent, int y)
+    {
+        var txt = new TextBox
+        {
+            Left = 24,
+            Top = y,
+            Width = 500,
+            Height = 30,
+            Font = new Font("Segoe UI", 9.5f),
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        parent.Controls.Add(txt);
+        return txt;
+    }
+
+    private Button MakePrimaryButton(string text, int width) => new Button
+    {
+        Text = text,
+        Width = width,
+        Height = 38,
+        FlatStyle = FlatStyle.Flat,
+        BackColor = Color.FromArgb(255, 168, 0),
+        ForeColor = Color.White,
+        Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+        Cursor = Cursors.Hand
+    };
+
+    private Button MakeSecondaryButton(string text, int width) => new Button
+    {
+        Text = text,
+        Width = width,
+        Height = 38,
+        FlatStyle = FlatStyle.Flat,
+        BackColor = Color.White,
+        ForeColor = Color.FromArgb(28, 32, 40),
+        Font = new Font("Segoe UI", 9.5f),
+        Cursor = Cursors.Hand
+    };
 
     // =========================================================
     // WORKFLOW BUTTONS — added per page
@@ -1571,44 +2500,9 @@ public partial class Form1 : Form
         contentPanel.Controls.Clear();
         contentPanel.Padding = new Padding(32, 20, 32, 32);
 
-        contentPanel.Controls.Add(new Label
-        {
-            Text = "CRM Reports",
-            ForeColor = ColorText,
-            Font = new Font("Segoe UI", 18f, FontStyle.Bold),
-            AutoSize = true,
-            Location = new Point(0, 0)
-        });
-
-        contentPanel.Controls.Add(new Label
-        {
-            Text = "Review company records and operational information.",
-            ForeColor = ColorMuted,
-            Font = new Font("Segoe UI", 9.5f),
-            AutoSize = true,
-            Location = new Point(2, 38)
-        });
-
-        var reportCard = CreateCard("Available CRM Data", "Live information is retrieved from your authenticated tenant database.");
-        reportCard.Location = new Point(0, 90);
-        reportCard.Size = new Size(720, 280);
-        contentPanel.Controls.Add(reportCard);
-
-        reportCard.Controls.Add(new Label
-        {
-            Text =
-                "The CRM currently provides live data for:\n\n" +
-                "•  Customer records\n" +
-                "•  Lead pipeline\n" +
-                "•  Interior design projects\n" +
-                "•  Quotation records\n" +
-                "•  Client activities and follow-ups\n\n" +
-                "Detailed printable reports can be added after the core modules are completed.",
-            ForeColor = ColorText,
-            Font = new Font("Segoe UI", 10.25f),
-            AutoSize = true,
-            Location = new Point(28, 28)
-        });
+        var page = new ReportsPage(ApiUrl, _httpClient);
+        contentPanel.Controls.Add(page);
+        _ = page.LoadAllAsync();
     }
 
     // =========================================================
@@ -2261,4 +3155,101 @@ public partial class Form1 : Form
         // Trigger the initial load after the panel is attached
         _ = page.LoadAsync();
     }
+
+    // =========================================================
+    // BI DASHBOARD + RETENTION PAGES
+    // =========================================================
+    public void NavigateTo(string page) => SelectNavigation(page);
+
+    private void BuildBiDashboard()
+    {
+        contentPanel.Controls.Clear();
+        contentPanel.Padding = new Padding(32, 20, 32, 32);
+
+        var page = new BiDashboardPage(ApiUrl, _httpClient);
+        contentPanel.Controls.Add(page);
+        _ = page.LoadAsync();
+    }
+
+    private void BuildRetentionPage()
+    {
+        contentPanel.Controls.Clear();
+        contentPanel.Padding = new Padding(32, 20, 32, 32);
+
+        var page = new RetentionPage(ApiUrl, _httpClient);
+        contentPanel.Controls.Add(page);
+        _ = page.LoadAsync();
+    }
+
+    private bool CanSee(string pageName)
+    {
+        var roles = Session.Roles ?? new List<string>();
+
+        bool isSuperAdmin = roles.Contains("Super Admin");
+        bool isAdmin = roles.Contains("Admin");
+        bool isManager = roles.Contains("Manager");
+        bool isStaff = roles.Contains("Staff");
+        bool isDesigner = roles.Contains("Designer");
+
+        // Super Admin & Admin see everything
+        if (isSuperAdmin || isAdmin) return true;
+
+        // Manager permissions
+        if (isManager)
+        {
+            return pageName switch
+            {
+                "Overview" => true,
+                "Customers" => true,
+                "Leads" => true,
+                "Projects" => true,
+                "Quotations" => true,
+                "Activities" => true,
+                "Designers" => true,
+                "Users" => true,
+                "Issues" => true,
+                "Feedback" => true,
+                "Analytics" => true,
+                "Retention" => true,
+                "Reports" => true,
+                _ => false
+            };
+        }
+
+        // Staff & Designer permissions
+        return pageName switch
+        {
+            "Overview" => true,
+            "Projects" => true,
+            "Activities" => true,
+            "Issues" => true,
+            "Feedback" => true,
+
+            "Customers" => isStaff,
+            "Leads" => isStaff,
+            "Quotations" => isStaff,
+            "Designers" => isStaff,
+            "Reports" => isStaff,
+
+            "Analytics" => false,
+            "Retention" => false,
+            "Users" => false,
+
+            _ => false
+        };
+    }
+
+    // =========================================================
+    // USERS PAGE
+    // =========================================================
+    private void BuildUsersPage()
+    {
+        contentPanel.Controls.Clear();
+        contentPanel.Padding = new Padding(32, 20, 32, 32);
+
+        var page = new UsersPage(ApiUrl, _httpClient);
+        contentPanel.Controls.Add(page);
+        _ = page.LoadAsync();
+    }
+
 }

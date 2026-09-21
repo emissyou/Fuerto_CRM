@@ -236,6 +236,11 @@ public class TenantErpDbContext : DbContext
             entity.Property(x => x.PaymentStatus).HasMaxLength(50).IsRequired();
             entity.Property(x => x.IssuedByUserId).HasMaxLength(450);
 
+            entity.Property(x => x.ApprovalStatus).HasMaxLength(50).IsRequired();
+            entity.Property(x => x.ApprovedByUserId).HasMaxLength(450);
+            entity.Property(x => x.ApprovedByName).HasMaxLength(200);
+            entity.Property(x => x.RejectionReason).HasMaxLength(1000);
+
             entity.HasIndex(x => new { x.CompanyId, x.QuotationNumber }).IsUnique();
 
             entity.HasOne(x => x.Project)

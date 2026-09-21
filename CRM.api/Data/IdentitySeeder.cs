@@ -37,4 +37,40 @@ public static class IdentitySeeder
         if (result.Succeeded)
             await userManager.AddToRoleAsync(user, ApplicationRoles.SuperAdmin);
     }
+
+    public static async Task SeedDesignersAsync(
+    UserManager<ApplicationUser> userManager,
+    int companyId)
+    {
+        // (FullName, Email, Password)
+        var designers = new[]
+        {
+        ("Marco Reyes",     "marco.reyes@fuerto.local",     "Design@12345"),
+        ("Sofia Lim",       "sofia.lim@fuerto.local",       "Design@12345"),
+        ("Diego Santos",    "diego.santos@fuerto.local",    "Design@12345"),
+        ("Elena Cruz",      "elena.cruz@fuerto.local",      "Design@12345"),
+        ("Rafael Tan",      "rafael.tan@fuerto.local",      "Design@12345")
+    };
+
+        foreach (var (fullName, email, password) in designers)
+        {
+            var existing = await userManager.FindByEmailAsync(email);
+            if (existing != null) continue;
+
+            var user = new ApplicationUser
+            {
+                UserName = email,
+                Email = email,
+                EmailConfirmed = true,
+                CompanyId = companyId,
+                FullName = fullName
+            };
+
+            var result = await userManager.CreateAsync(user, password);
+            if (result.Succeeded)
+            {
+                await userManager.AddToRoleAsync(user, "Designer");
+            }
+        }
+    }
 }

@@ -160,11 +160,17 @@ using (var scope = app.Services.CreateScope())
         scope.ServiceProvider
             .GetRequiredService<UserManager<ApplicationUser>>();
 
+    // Create roles if they do not exist.
     await IdentitySeeder.SeedRolesAsync(roleManager);
 
+    // Create the first local Super Admin if needed.
     await IdentitySeeder.SeedSuperAdminAsync(
         userManager,
         roleManager);
+
+    // 👇 ADD THIS LINE
+    // Seed 5 designers for company #1
+    await IdentitySeeder.SeedDesignersAsync(userManager, companyId: 1);
 }
 
 
@@ -569,6 +575,14 @@ app.MapActivityEndpoints();
 
 app.MapWorkflowEndpoints();
 
+app.MapBiEndpoints();
+
+app.MapUserManagementEndpoints();
+
+app.MapQuotationApprovalEndpoints();
+
+app.MapReminderEndpoints();
+
 app.MapFeedbackEndpoints();
 
 app.MapIssueEndpoints();
@@ -841,6 +855,66 @@ app.MapSupplierEndpoints();
 
 app.MapDashboardEndpoints();
 
+// ============================================================
+// BI SEED (DEV ONLY)
+// POST /tenant/{companyId}/bi/seed-test-data
+// ============================================================
+// ============================================================
+// BI SEED (DEV ONLY)
+// ============================================================
+app.MapPost("/tenant/{companyId:int}/bi/seed-test-data", async (
+    int companyId,
+    HttpContext http,
+    UserManager<ApplicationUser> userManager,
+    ITenantDbContextFactory tenantFactory) =>
+{
+    if (!app.Environment.IsDevelopment())
+        return Results.NotFound();
+
+    if (!CRM.api.Security.TenantAuthorization.IsAuthorized(http, companyId))
+        return Results.Forbid();
+
+    try
+    {
+        // ---- Resolve the 5 designers from the master DB ----
+        var designers = new Dictionary<string, (string UserId, string FullName)>();
+
+        foreach (var (email, fullName) in CRM.infrastructure.Data.BiTestDataSeeder.GetDesignerList())
+        {
+            var user = await userManager.FindByEmailAsync(email);
+            if (user is null)
+            {
+                return Results.BadRequest(new
+                {
+                    message = $"Designer '{email}' not found. Restart the API first so it seeds designers."
+                });
+            }
+            designers[email] = (user.Id, fullName);
+        }
+
+        await using var db = await tenantFactory.CreateAsync(companyId);
+
+        var (customers, projects, quotations, feedbacks, issues) =
+            await CRM.infrastructure.Data.BiTestDataSeeder.SeedAsync(
+                db, companyId, designers, 250);
+
+        return Results.Ok(new
+        {
+            message = "Test data seeded successfully.",
+            designersUsed = designers.Count,
+            customers,
+            projects,
+            quotations,
+            feedbacks,
+            issues
+        });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { message = ex.Message });
+    }
+})
+.RequireAuthorization();
 
 // ============================================================
 // RUN APPLICATION

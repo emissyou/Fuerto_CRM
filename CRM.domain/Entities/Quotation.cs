@@ -21,7 +21,7 @@ public class Quotation : CompanyEntity
 
     // ---- Payment ----
     public decimal AmountPaid { get; set; } = 0;
-    public decimal DepositRequired { get; set; } = 0;   // usually 50% of TotalAmount
+    public decimal DepositRequired { get; set; } = 0;
     public string PaymentStatus { get; set; } = Enums.PaymentStatus.Pending;
 
     public DateTime? DepositPaidDate { get; set; }
@@ -40,6 +40,13 @@ public class Quotation : CompanyEntity
     public string IssuedByUserId { get; set; } = string.Empty;
 
     public DateTime? AcceptedAt { get; set; }
+
+    // ---- Approval workflow ----
+    public string ApprovalStatus { get; set; } = "Pending";
+    public string ApprovedByUserId { get; set; } = string.Empty;
+    public string ApprovedByName { get; set; } = string.Empty;
+    public DateTime? ApprovedAt { get; set; }
+    public string RejectionReason { get; set; } = string.Empty;
 
     // ---- Navigation ----
     public Project? Project { get; set; }
