@@ -5,12 +5,11 @@ public static class ApplicationRoles
     public const string SuperAdmin = "Super Admin";
     public const string Admin = "Admin";
     public const string Manager = "Manager";
-    public const string Staff = "Staff";
-    public const string Designer = "Designer";
+    public const string Staff = "Staff";   // Staff now also does design work
 
     public static readonly string[] All =
     {
-        SuperAdmin, Admin, Manager, Staff, Designer
+        SuperAdmin, Admin, Manager, Staff
     };
 
     /// <summary>
@@ -26,6 +25,15 @@ public static class ApplicationRoles
     /// </summary>
     public static readonly string[] ManagerCanTouch =
     {
-        Staff, Designer
+        Staff
+    };
+
+    /// <summary>
+    /// Roles that can be assigned to projects as designers.
+    /// (Staff does design work; no separate Designer role.)
+    /// </summary>
+    public static readonly string[] CanBeDesigner =
+    {
+        Staff, Manager, Admin, SuperAdmin
     };
 }

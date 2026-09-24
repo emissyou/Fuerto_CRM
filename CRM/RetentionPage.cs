@@ -12,6 +12,7 @@ public class RetentionPage : Panel
     private ComboBox _cmbFilter = null!;
     private Label _lblStatus = null!;
     private Button _btnRefresh = null!;
+    private Button _btnRetainAny = null!;
     private Button _btnPrev = null!;
     private Button _btnNext = null!;
     private Label _lblPageInfo = null!;
@@ -34,9 +35,9 @@ public class RetentionPage : Panel
         Padding = new Padding(32, 20, 32, 32);
 
         // =========================================================
-        // HEADER
+        // HEADER (toolbar)
         // =========================================================
-        var header = new Panel { Dock = DockStyle.Top, Height = 56 };
+        var header = new Panel { Dock = DockStyle.Top, Height = 60 };
         Controls.Add(header);
 
         _lblStatus = new Label
@@ -45,10 +46,11 @@ public class RetentionPage : Panel
             ForeColor = Color.FromArgb(110, 118, 132),
             Font = new Font("Segoe UI", 10f),
             AutoSize = true,
-            Location = new Point(0, 16)
+            Location = new Point(0, 18)
         };
         header.Controls.Add(_lblStatus);
 
+        // ---- Refresh ----
         _btnRefresh = new Button
         {
             Text = "↻  Refresh",
@@ -58,6 +60,7 @@ public class RetentionPage : Panel
             Height = 36,
             FlatStyle = FlatStyle.Flat,
             BackColor = Color.White,
+            ForeColor = Color.FromArgb(28, 32, 40),
             Font = new Font("Segoe UI", 9f, FontStyle.Bold),
             Cursor = Cursors.Hand
         };
@@ -69,19 +72,47 @@ public class RetentionPage : Panel
         };
         header.Controls.Add(_btnRefresh);
 
+        // ---- NEW: Retain Any Customer ----
+        _btnRetainAny = new Button
+        {
+            Text = "＋  Retain Any Customer",
+            Left = 340,
+            Top = 8,
+            Width = 210,
+            Height = 36,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(255, 168, 0),
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        _btnRetainAny.FlatAppearance.BorderSize = 0;
+        _btnRetainAny.Click += async (_, _) =>
+        {
+            using var dlg = new RetainCustomerDialog(_apiUrl, _http);
+            if (dlg.ShowDialog(FindForm()) == DialogResult.OK)
+            {
+                // Reload in case anything changed
+                await LoadAsync();
+            }
+        };
+        header.Controls.Add(_btnRetainAny);
+
+        // ---- Filter label ----
         header.Controls.Add(new Label
         {
             Text = "Filter:",
-            Left = 350,
-            Top = 16,
+            Left = 570,
+            Top = 18,
             Width = 50,
             Height = 20,
-            Font = new Font("Segoe UI", 9.5f)
+            Font = new Font("Segoe UI", 9.5f),
+            ForeColor = Color.FromArgb(110, 118, 132)
         });
 
         _cmbFilter = new ComboBox
         {
-            Left = 400,
+            Left = 620,
             Top = 12,
             Width = 180,
             Height = 28,
@@ -102,19 +133,21 @@ public class RetentionPage : Panel
         };
         header.Controls.Add(_cmbFilter);
 
+        // ---- Per page ----
         header.Controls.Add(new Label
         {
             Text = "Per page:",
-            Left = 600,
-            Top = 16,
+            Left = 820,
+            Top = 18,
             Width = 70,
             Height = 20,
-            Font = new Font("Segoe UI", 9.5f)
+            Font = new Font("Segoe UI", 9.5f),
+            ForeColor = Color.FromArgb(110, 118, 132)
         });
 
         _cmbPageSize = new ComboBox
         {
-            Left = 675,
+            Left = 895,
             Top = 12,
             Width = 80,
             Height = 28,
@@ -122,7 +155,7 @@ public class RetentionPage : Panel
             Font = new Font("Segoe UI", 9.5f)
         };
         _cmbPageSize.Items.AddRange(new object[] { "10", "25", "50", "100" });
-        _cmbPageSize.SelectedIndex = 0; // 10 per page
+        _cmbPageSize.SelectedIndex = 0;
         _cmbPageSize.SelectedIndexChanged += (_, _) =>
         {
             if (int.TryParse(_cmbPageSize.SelectedItem?.ToString(), out var n))
@@ -140,39 +173,7 @@ public class RetentionPage : Panel
         _grid = new DataGridView
         {
             Dock = DockStyle.Fill,
-            BackgroundColor = Color.White,
-            BorderStyle = BorderStyle.None,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            ReadOnly = true,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect = false,
-            RowHeadersVisible = false,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersHeight = 42
-        };
-        _grid.RowTemplate.Height = 44;
-
-        _grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-        {
-            BackColor = Color.FromArgb(249, 250, 252),
-            ForeColor = Color.FromArgb(85, 93, 106),
-            Font = new Font("Segoe UI", 8f, FontStyle.Bold),
-            Padding = new Padding(10, 0, 10, 0)
-        };
-        _grid.DefaultCellStyle = new DataGridViewCellStyle
-        {
-            BackColor = Color.White,
-            ForeColor = Color.FromArgb(28, 32, 40),
-            Font = new Font("Segoe UI", 9f),
-            Padding = new Padding(10, 0, 10, 0),
-            SelectionBackColor = Color.FromArgb(255, 245, 225),
-            SelectionForeColor = Color.FromArgb(28, 32, 40)
-        };
-        _grid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
-        {
-            BackColor = Color.FromArgb(250, 251, 253)
+            AutoGenerateColumns = false
         };
 
         _grid.Columns.Add("rowNum", "#");
@@ -185,28 +186,34 @@ public class RetentionPage : Panel
         _grid.Columns.Add("basis", "BASIS");
         _grid.Columns.Add("action", "RECOMMENDED ACTION");
 
-        // Make row number column narrow
-        _grid.Columns["rowNum"].FillWeight = 20;
-        _grid.Columns["segment"].FillWeight = 55;
-        _grid.Columns["name"].FillWeight = 80;
+        // Column weight tuning
+        _grid.Columns["rowNum"].FillWeight = 18;
+        _grid.Columns["segment"].FillWeight = 65;
+        _grid.Columns["name"].FillWeight = 90;
         _grid.Columns["projects"].FillWeight = 35;
         _grid.Columns["rating"].FillWeight = 35;
-        _grid.Columns["days"].FillWeight = 50;
-        _grid.Columns["revenue"].FillWeight = 55;
-        _grid.Columns["basis"].FillWeight = 130;
-        _grid.Columns["action"].FillWeight = 120;
+        _grid.Columns["days"].FillWeight = 55;
+        _grid.Columns["revenue"].FillWeight = 60;
+        _grid.Columns["basis"].FillWeight = 140;
+        _grid.Columns["action"].FillWeight = 140;
+
+        // ---- Apply modern card-row styling with pills ----
+        CrmTableStyler.Apply(_grid, "segment");
+        _grid.RowTemplate.Height = 60;
 
         _grid.CellFormatting += (_, e) =>
         {
-            if (e.ColumnIndex == _grid.Columns["segment"].Index && e.Value is string seg)
-            {
-                e.CellStyle.ForeColor = SegmentColor(seg);
-                e.CellStyle.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-            }
             if (e.ColumnIndex == _grid.Columns["rowNum"].Index)
             {
-                e.CellStyle.ForeColor = Color.FromArgb(140, 148, 162);
+                e.CellStyle.ForeColor = Color.FromArgb(160, 168, 180);
                 e.CellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+                e.CellStyle.Font = new Font("Segoe UI", 8.5f);
+            }
+
+            if (e.ColumnIndex == _grid.Columns["segment"].Index && e.Value is string)
+            {
+                // Suppress default text rendering — pill paints itself
+                e.CellStyle.ForeColor = Color.Transparent;
             }
         };
 
@@ -234,21 +241,19 @@ public class RetentionPage : Panel
         };
 
         // =========================================================
-        // PAGINATION BAR (bottom)
+        // PAGINATION BAR
         // =========================================================
         var pager = new Panel
         {
             Dock = DockStyle.Bottom,
             Height = 56,
-            BackColor = Color.White,
-            Padding = new Padding(16, 10, 16, 10)
+            BackColor = Color.White
         };
         Controls.Add(pager);
 
-        // Top border
-        pager.Paint += (s, e) =>
+        pager.Paint += (_, e) =>
         {
-            using var pen = new Pen(Color.FromArgb(226, 230, 236), 1);
+            using var pen = new Pen(Color.FromArgb(232, 235, 240), 1);
             e.Graphics.DrawLine(pen, 0, 0, pager.Width, 0);
         };
 
@@ -267,11 +272,7 @@ public class RetentionPage : Panel
         _btnPrev.FlatAppearance.BorderColor = Color.FromArgb(226, 230, 236);
         _btnPrev.Click += (_, _) =>
         {
-            if (_currentPage > 1)
-            {
-                _currentPage--;
-                RenderPage();
-            }
+            if (_currentPage > 1) { _currentPage--; RenderPage(); }
         };
         pager.Controls.Add(_btnPrev);
 
@@ -279,7 +280,7 @@ public class RetentionPage : Panel
         {
             Left = 118,
             Top = 20,
-            Width = 320,
+            Width = 420,
             Height = 24,
             Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
             ForeColor = Color.FromArgb(28, 32, 40)
@@ -289,7 +290,7 @@ public class RetentionPage : Panel
         _btnNext = new Button
         {
             Text = "Next  ▶",
-            Left = 450,
+            Left = 550,
             Top = 10,
             Width = 90,
             Height = 36,
@@ -301,11 +302,7 @@ public class RetentionPage : Panel
         _btnNext.FlatAppearance.BorderColor = Color.FromArgb(226, 230, 236);
         _btnNext.Click += (_, _) =>
         {
-            if (_currentPage < TotalPages)
-            {
-                _currentPage++;
-                RenderPage();
-            }
+            if (_currentPage < TotalPages) { _currentPage++; RenderPage(); }
         };
         pager.Controls.Add(_btnNext);
 
@@ -368,10 +365,8 @@ public class RetentionPage : Panel
             .ThenByDescending(r => GetInt(r, "daysSinceLastProject"))
             .ToList();
 
-        if (_currentPage > TotalPages)
-            _currentPage = TotalPages;
-        if (_currentPage < 1)
-            _currentPage = 1;
+        if (_currentPage > TotalPages) _currentPage = TotalPages;
+        if (_currentPage < 1) _currentPage = 1;
 
         RenderPage();
     }
@@ -390,7 +385,7 @@ public class RetentionPage : Panel
             var ratingText = rating > 0 ? $"{rating:F1}★" : "—";
 
             _grid.Rows.Add(
-                (i + 1).ToString(),                                 // Global row number
+                (i + 1).ToString(),
                 GetStr(r, "segment"),
                 GetStr(r, "fullName"),
                 GetInt(r, "projectCount"),
@@ -401,9 +396,10 @@ public class RetentionPage : Panel
                 GetStr(r, "action"));
         }
 
-        // Update pagination info
         var filter = _cmbFilter.SelectedItem?.ToString() ?? "All Segments";
-        _lblPageInfo.Text = $"Page {_currentPage} of {TotalPages}   ·   Showing {start + 1}–{end} of {_filtered.Count}";
+        _lblPageInfo.Text = $"Page {_currentPage} of {TotalPages}   ·   " +
+                           $"Showing {start + 1}–{end} of {_filtered.Count}";
+
         _btnPrev.Enabled = _currentPage > 1;
         _btnNext.Enabled = _currentPage < TotalPages;
         _btnPrev.ForeColor = _btnPrev.Enabled ? Color.FromArgb(28, 32, 40) : Color.FromArgb(180, 186, 196);
@@ -416,18 +412,6 @@ public class RetentionPage : Panel
     // =========================================================
     // HELPERS
     // =========================================================
-    private static Color SegmentColor(string segment) => segment switch
-    {
-        "Champion" => Color.FromArgb(34, 140, 78),
-        "Loyal" => Color.FromArgb(80, 140, 200),
-        "Promising" => Color.FromArgb(160, 130, 60),
-        "Detractor" => Color.FromArgb(200, 55, 55),
-        "At Risk" => Color.FromArgb(220, 120, 30),
-        "Dormant" => Color.FromArgb(140, 140, 140),
-        "Lost" => Color.FromArgb(110, 110, 110),
-        _ => Color.FromArgb(110, 118, 132)
-    };
-
     private static string GetStr(JsonElement el, string name)
     {
         if (!el.TryGetProperty(name, out var p)) return "";

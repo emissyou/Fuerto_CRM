@@ -160,16 +160,12 @@ using (var scope = app.Services.CreateScope())
         scope.ServiceProvider
             .GetRequiredService<UserManager<ApplicationUser>>();
 
-    // Create roles if they do not exist.
     await IdentitySeeder.SeedRolesAsync(roleManager);
 
-    // Create the first local Super Admin if needed.
     await IdentitySeeder.SeedSuperAdminAsync(
         userManager,
         roleManager);
 
-    // 👇 ADD THIS LINE
-    // Seed 5 designers for company #1
     await IdentitySeeder.SeedDesignersAsync(userManager, companyId: 1);
 }
 
@@ -587,56 +583,42 @@ app.MapFeedbackEndpoints();
 
 app.MapIssueEndpoints();
 
+app.MapPromotionEndpoints();
+
 
 // ============================================================
-// DESIGNERS LIST (with stats)
+// DESIGNERS / STAFF LIST
 // GET /tenant/{companyId}/designers
+// Returns everyone who has been assigned to at least one project.
 // ============================================================
 app.MapGet("/tenant/{companyId:int}/designers", async (
     int companyId,
     HttpContext http,
-    UserManager<ApplicationUser> userManager,
     ITenantDbContextFactory tenantFactory) =>
 {
     if (!CRM.api.Security.TenantAuthorization.IsAuthorized(http, companyId))
         return Results.Forbid();
 
-    // ---- Get all users in this company ----
-    var users = userManager.Users
-        .Where(u => u.CompanyId == companyId)
-        .ToList();
-
-    // ---- Filter to Designers only ----
-    var designers = new List<ApplicationUser>();
-    foreach (var u in users)
-    {
-        if (await userManager.IsInRoleAsync(u, "Designer"))
-            designers.Add(u);
-    }
-
-    // ---- Get tenant DB to compute stats ----
     await using var db = await tenantFactory.CreateAsync(companyId);
 
-    var designerIds = designers.Select(d => d.Id).ToList();
-
-    var projectsByDesigner = await db.Projects
-        .Where(p => p.CompanyId == companyId
-                 && p.DesignerId != null
-                 && designerIds.Contains(p.DesignerId))
-        .Select(p => new
+    var designerGroups = await db.Projects
+        .Where(p => p.CompanyId == companyId && p.DesignerId != null)
+        .GroupBy(p => new { p.DesignerId, p.DesignerName })
+        .Select(g => new
         {
-            p.ProjectId,
-            p.DesignerId,
-            p.DesignStage,
-            p.ProgressPercentage
+            DesignerId = g.Key.DesignerId!,
+            DesignerName = g.Key.DesignerName,
+            TotalProjects = g.Count(),
+            CompletedProjects = g.Count(p => p.DesignStage == "Completed"),
+            ActiveProjects = g.Count(p => p.DesignStage != "Completed"
+                                       && p.DesignStage != "Cancelled")
         })
         .ToListAsync();
 
-    var feedbackRows = await db.ProjectFeedbacks
+    var feedbackByDesigner = await db.ProjectFeedbacks
         .Where(f => f.CompanyId == companyId)
         .Join(
-            db.Projects.Where(p => p.DesignerId != null
-                                && designerIds.Contains(p.DesignerId)),
+            db.Projects.Where(p => p.DesignerId != null),
             f => f.ProjectId,
             p => p.ProjectId,
             (f, p) => new
@@ -652,76 +634,54 @@ app.MapGet("/tenant/{companyId:int}/designers", async (
     var issuesByDesigner = await db.ProjectIssues
         .Where(i => i.CompanyId == companyId)
         .Join(
-            db.Projects.Where(p => p.DesignerId != null
-                                && designerIds.Contains(p.DesignerId)),
+            db.Projects.Where(p => p.DesignerId != null),
             i => i.ProjectId,
             p => p.ProjectId,
-            (i, p) => new
-            {
-                DesignerId = p.DesignerId!,
-                i.Status
-            })
+            (i, p) => new { DesignerId = p.DesignerId!, i.Status })
         .ToListAsync();
 
     var result = new List<object>();
 
-    foreach (var d in designers)
+    foreach (var g in designerGroups)
     {
-        var myProjects = projectsByDesigner
-            .Where(p => p.DesignerId == d.Id)
-            .ToList();
+        var fbs = feedbackByDesigner.Where(f => f.DesignerId == g.DesignerId).ToList();
+        var iss = issuesByDesigner.Where(i => i.DesignerId == g.DesignerId).ToList();
 
-        var myFeedback = feedbackRows
-            .Where(f => f.DesignerId == d.Id)
-            .ToList();
-
-        var myIssues = issuesByDesigner
-            .Where(i => i.DesignerId == d.Id)
-            .ToList();
-
-        var totalProjects = myProjects.Count;
-        var activeProjects = myProjects.Count(p =>
-            p.DesignStage != "Completed" && p.DesignStage != "Cancelled");
-        var completedProjects = myProjects.Count(p => p.DesignStage == "Completed");
-        var openIssues = myIssues.Count(i =>
-            i.Status == "Open" || i.Status == "InProgress");
-
-        double? avgOverall = myFeedback.Count > 0
-            ? Math.Round(myFeedback.Average(f => f.OverallRating), 2) : null;
-        double? avgTimeliness = myFeedback.Count > 0
-            ? Math.Round(myFeedback.Average(f => f.TimelinessRating), 2) : null;
-        double? avgCommunication = myFeedback.Count > 0
-            ? Math.Round(myFeedback.Average(f => f.CommunicationRating), 2) : null;
-        double? avgValue = myFeedback.Count > 0
-            ? Math.Round(myFeedback.Average(f => f.ValueRating), 2) : null;
+        var avgOverall = fbs.Any() ? Math.Round(fbs.Average(f => f.OverallRating), 2) : (double?)null;
+        var avgTimeliness = fbs.Any() ? Math.Round(fbs.Average(f => f.TimelinessRating), 2) : (double?)null;
+        var avgComm = fbs.Any() ? Math.Round(fbs.Average(f => f.CommunicationRating), 2) : (double?)null;
+        var avgValue = fbs.Any() ? Math.Round(fbs.Average(f => f.ValueRating), 2) : (double?)null;
 
         double? overallScore = (avgOverall.HasValue && avgTimeliness.HasValue
-                             && avgCommunication.HasValue && avgValue.HasValue)
+                             && avgComm.HasValue && avgValue.HasValue)
             ? Math.Round((avgOverall.Value + avgTimeliness.Value
-                        + avgCommunication.Value + avgValue.Value) / 4.0, 2)
+                        + avgComm.Value + avgValue.Value) / 4.0, 2)
             : (double?)null;
 
         result.Add(new
         {
-            userId = d.Id,
-            fullName = string.IsNullOrWhiteSpace(d.FullName)
-                ? (d.Email ?? d.UserName ?? "Designer")
-                : d.FullName,
-            email = d.Email,
-            totalProjects,
-            activeProjects,
-            completedProjects,
-            openIssues,
-            feedbackCount = myFeedback.Count,
+            userId = g.DesignerId,
+            fullName = g.DesignerName,
+            email = "",
+            totalProjects = g.TotalProjects,
+            activeProjects = g.ActiveProjects,
+            completedProjects = g.CompletedProjects,
+            openIssues = iss.Count(i => i.Status == "Open" || i.Status == "InProgress"),
+            feedbackCount = fbs.Count,
             avgOverallRating = avgOverall,
             avgTimelinessRating = avgTimeliness,
-            avgCommunicationRating = avgCommunication,
+            avgCommunicationRating = avgComm,
             avgValueRating = avgValue,
             overallScore
         });
     }
 
-    return Results.Ok(result);
+    var sorted = result
+        .OrderByDescending(r => ((dynamic)r).overallScore ?? 0)
+        .ThenByDescending(r => ((dynamic)r).totalProjects)
+        .ToList();
+
+    return Results.Ok(sorted);
 })
 .RequireAuthorization();
 
@@ -742,11 +702,11 @@ app.MapGet("/tenant/{companyId:int}/designers/{designerId}", async (
 
     var designer = await userManager.FindByIdAsync(designerId);
     if (designer is null || designer.CompanyId != companyId)
-        return Results.NotFound(new { message = "Designer not found." });
+        return Results.NotFound(new { message = "Staff member not found." });
 
-    var isDesigner = await userManager.IsInRoleAsync(designer, "Designer");
-    if (!isDesigner)
-        return Results.NotFound(new { message = "User is not a Designer." });
+    var isStaff = await userManager.IsInRoleAsync(designer, "Staff");
+    if (!isStaff)
+        return Results.NotFound(new { message = "User is not a Staff member." });
 
     await using var db = await tenantFactory.CreateAsync(companyId);
 
@@ -828,7 +788,7 @@ app.MapGet("/tenant/{companyId:int}/designers/{designerId}", async (
     {
         userId = designer.Id,
         fullName = string.IsNullOrWhiteSpace(designer.FullName)
-            ? (designer.Email ?? designer.UserName ?? "Designer")
+            ? (designer.Email ?? designer.UserName ?? "Staff")
             : designer.FullName,
         email = designer.Email,
         totalProjects = projects.Count,
@@ -855,12 +815,10 @@ app.MapSupplierEndpoints();
 
 app.MapDashboardEndpoints();
 
+
 // ============================================================
 // BI SEED (DEV ONLY)
 // POST /tenant/{companyId}/bi/seed-test-data
-// ============================================================
-// ============================================================
-// BI SEED (DEV ONLY)
 // ============================================================
 app.MapPost("/tenant/{companyId:int}/bi/seed-test-data", async (
     int companyId,
@@ -876,7 +834,6 @@ app.MapPost("/tenant/{companyId:int}/bi/seed-test-data", async (
 
     try
     {
-        // ---- Resolve the 5 designers from the master DB ----
         var designers = new Dictionary<string, (string UserId, string FullName)>();
 
         foreach (var (email, fullName) in CRM.infrastructure.Data.BiTestDataSeeder.GetDesignerList())
@@ -886,7 +843,7 @@ app.MapPost("/tenant/{companyId:int}/bi/seed-test-data", async (
             {
                 return Results.BadRequest(new
                 {
-                    message = $"Designer '{email}' not found. Restart the API first so it seeds designers."
+                    message = $"Staff '{email}' not found. Restart the API first so it seeds them."
                 });
             }
             designers[email] = (user.Id, fullName);
@@ -915,6 +872,7 @@ app.MapPost("/tenant/{companyId:int}/bi/seed-test-data", async (
     }
 })
 .RequireAuthorization();
+
 
 // ============================================================
 // RUN APPLICATION

@@ -13,6 +13,8 @@ public class TenantErpDbContext : DbContext
 
     public DbSet<Product> Products => Set<Product>();
 
+    public DbSet<RetentionAction> RetentionActions => Set<RetentionAction>();
+
     public DbSet<Customer> Customers => Set<Customer>();
 
     public DbSet<Lead> Leads => Set<Lead>();
@@ -31,6 +33,10 @@ public class TenantErpDbContext : DbContext
 
     public DbSet<ProjectFeedback> ProjectFeedbacks => Set<ProjectFeedback>();
     public DbSet<ProjectIssue> ProjectIssues => Set<ProjectIssue>();
+
+    public DbSet<Promotion> Promotions => Set<Promotion>();
+
+
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -379,6 +385,54 @@ public class TenantErpDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.CustomerId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            entity.Ignore(x => x.Company);
+        });
+
+        builder.Entity<RetentionAction>(entity =>
+        {
+            entity.HasKey(x => x.RetentionActionId);
+
+            entity.Property(x => x.OfferType).HasMaxLength(50).IsRequired();
+            entity.Property(x => x.OfferDescription).HasMaxLength(500);
+            entity.Property(x => x.Segment).HasMaxLength(50);
+            entity.Property(x => x.Basis).HasMaxLength(1000);
+            entity.Property(x => x.Notes).HasMaxLength(2000);
+            entity.Property(x => x.ScriptUsed).HasMaxLength(4000);
+            entity.Property(x => x.Source).HasMaxLength(50);
+            entity.Property(x => x.ActionTaken).HasMaxLength(500);
+            entity.Property(x => x.Status).HasMaxLength(50);
+            entity.Property(x => x.CreatedByUserId).HasMaxLength(450);
+            entity.Property(x => x.CreatedByName).HasMaxLength(200);
+
+            entity.Property(x => x.OfferValue).HasPrecision(18, 2);
+
+            entity.HasOne(x => x.Customer)
+                .WithMany()
+                .HasForeignKey(x => x.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(x => x.Project)
+                .WithMany()
+                .HasForeignKey(x => x.ProjectId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.Ignore(x => x.Company);
+        });
+
+        builder.Entity<Promotion>(entity =>
+        {
+            entity.HasKey(x => x.PromotionId);
+
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Code).HasMaxLength(50);
+            entity.Property(x => x.Description).HasMaxLength(1000);
+            entity.Property(x => x.OfferType).HasMaxLength(50).IsRequired();
+            entity.Property(x => x.OfferValue).HasPrecision(18, 2);
+            entity.Property(x => x.TargetSegment).HasMaxLength(50);
+            entity.Property(x => x.Notes).HasMaxLength(2000);
+            entity.Property(x => x.CreatedByUserId).HasMaxLength(450);
+            entity.Property(x => x.CreatedByName).HasMaxLength(200);
 
             entity.Ignore(x => x.Company);
         });

@@ -176,9 +176,13 @@ public static class WorkflowEndpoints
             if (designer == null)
                 return Results.BadRequest(new { message = "Designer user not found." });
 
-            var isDesigner = await userManager.IsInRoleAsync(designer, "Designer");
-            if (!isDesigner)
-                return Results.BadRequest(new { message = "Selected user is not a Designer." });
+            var isStaff = await userManager.IsInRoleAsync(designer, "Staff");
+            var isManager = await userManager.IsInRoleAsync(designer, "Manager");
+            var isAdmin = await userManager.IsInRoleAsync(designer, "Admin") ||
+                          await userManager.IsInRoleAsync(designer, "Super Admin");
+
+            if (!isStaff && !isManager && !isAdmin)
+                return Results.BadRequest(new { message = "Selected user cannot be assigned as a designer." });
 
             try
             {

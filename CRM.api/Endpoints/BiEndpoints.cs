@@ -1,6 +1,8 @@
 ﻿using CRM.api.Security;
+using CRM.domain.Entities;
 using CRM.infrastructure.Data;
 using CRM.infrastructure.Services;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace CRM.api.Endpoints;
@@ -328,43 +330,54 @@ public static class BiEndpoints
 
 
         // ============================================================
-        // DESIGNERS — leaderboard
+        // DESIGNERS / STAFF LIST (with stats)
+        // Returns all Staff members (Staff now does design work).
         // ============================================================
         group.MapGet("/designers", async (
             int companyId,
             HttpContext http,
+            UserManager<ApplicationUser> userManager,
             ITenantDbContextFactory tenantFactory) =>
         {
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
+            // Get all users in this company
+            var users = userManager.Users
+                .Where(u => u.CompanyId == companyId)
+                .ToList();
+
+            // Filter to Staff members only
+            var designers = new List<ApplicationUser>();
+            foreach (var u in users)
+            {
+                if (await userManager.IsInRoleAsync(u, "Staff"))
+                    designers.Add(u);
+            }
+
+            // Get tenant DB to compute stats
             await using var db = await tenantFactory.CreateAsync(companyId);
 
-            // Designer snapshots from projects
-            var designerGroups = await db.Projects
-                .Where(p => p.CompanyId == companyId && p.DesignerId != null)
-                .GroupBy(p => new { p.DesignerId, p.DesignerName })
-                .Select(g => new
+            var designerIds = designers.Select(d => d.Id).ToList();
+
+            var projectsByDesigner = await db.Projects
+                .Where(p => p.CompanyId == companyId
+                         && p.DesignerId != null
+                         && designerIds.Contains(p.DesignerId))
+                .Select(p => new
                 {
-                    DesignerId = g.Key.DesignerId!,
-                    DesignerName = g.Key.DesignerName,
-                    TotalProjects = g.Count(),
-                    CompletedProjects = g.Count(p => p.DesignStage == "Completed"),
-                    ActiveProjects = g.Count(p => p.DesignStage != "Completed"
-                                               && p.DesignStage != "Cancelled"),
-                    AvgCompletionDays = g.Where(p => p.DesignStartDate != null
-                                                  && p.DesignCompletionDate != null)
-                                         .Select(p => (double?)EF.Functions.DateDiffDay(
-                                             p.DesignStartDate!.Value,
-                                             p.DesignCompletionDate!.Value))
-                                         .Average()
+                    p.ProjectId,
+                    p.DesignerId,
+                    p.DesignStage,
+                    p.ProgressPercentage
                 })
                 .ToListAsync();
 
-            var feedbackByDesigner = await db.ProjectFeedbacks
+            var feedbackRows = await db.ProjectFeedbacks
                 .Where(f => f.CompanyId == companyId)
                 .Join(
-                    db.Projects.Where(p => p.DesignerId != null),
+                    db.Projects.Where(p => p.DesignerId != null
+                                        && designerIds.Contains(p.DesignerId)),
                     f => f.ProjectId,
                     p => p.ProjectId,
                     (f, p) => new
@@ -373,72 +386,85 @@ public static class BiEndpoints
                         f.OverallRating,
                         f.TimelinessRating,
                         f.CommunicationRating,
-                        f.ValueRating,
-                        f.WouldRecommend
+                        f.ValueRating
                     })
                 .ToListAsync();
 
             var issuesByDesigner = await db.ProjectIssues
                 .Where(i => i.CompanyId == companyId)
                 .Join(
-                    db.Projects.Where(p => p.DesignerId != null),
+                    db.Projects.Where(p => p.DesignerId != null
+                                        && designerIds.Contains(p.DesignerId)),
                     i => i.ProjectId,
                     p => p.ProjectId,
-                    (i, p) => new { DesignerId = p.DesignerId!, i.Status })
+                    (i, p) => new
+                    {
+                        DesignerId = p.DesignerId!,
+                        i.Status
+                    })
                 .ToListAsync();
 
             var result = new List<object>();
 
-            foreach (var g in designerGroups)
+            foreach (var d in designers)
             {
-                var fbs = feedbackByDesigner.Where(f => f.DesignerId == g.DesignerId).ToList();
-                var iss = issuesByDesigner.Where(i => i.DesignerId == g.DesignerId).ToList();
+                var myProjects = projectsByDesigner
+                    .Where(p => p.DesignerId == d.Id)
+                    .ToList();
 
-                var avgOverall = fbs.Any() ? Math.Round(fbs.Average(f => f.OverallRating), 2) : (double?)null;
-                var avgTimeliness = fbs.Any() ? Math.Round(fbs.Average(f => f.TimelinessRating), 2) : (double?)null;
-                var avgComm = fbs.Any() ? Math.Round(fbs.Average(f => f.CommunicationRating), 2) : (double?)null;
-                var avgValue = fbs.Any() ? Math.Round(fbs.Average(f => f.ValueRating), 2) : (double?)null;
-                var recommendRate = fbs.Any()
-                    ? Math.Round(fbs.Count(f => f.WouldRecommend) * 100.0 / fbs.Count, 2)
-                    : (double?)null;
+                var myFeedback = feedbackRows
+                    .Where(f => f.DesignerId == d.Id)
+                    .ToList();
+
+                var myIssues = issuesByDesigner
+                    .Where(i => i.DesignerId == d.Id)
+                    .ToList();
+
+                var totalProjects = myProjects.Count;
+                var activeProjects = myProjects.Count(p =>
+                    p.DesignStage != "Completed" && p.DesignStage != "Cancelled");
+                var completedProjects = myProjects.Count(p => p.DesignStage == "Completed");
+                var openIssues = myIssues.Count(i =>
+                    i.Status == "Open" || i.Status == "InProgress");
+
+                double? avgOverall = myFeedback.Count > 0
+                    ? Math.Round(myFeedback.Average(f => f.OverallRating), 2) : null;
+                double? avgTimeliness = myFeedback.Count > 0
+                    ? Math.Round(myFeedback.Average(f => f.TimelinessRating), 2) : null;
+                double? avgCommunication = myFeedback.Count > 0
+                    ? Math.Round(myFeedback.Average(f => f.CommunicationRating), 2) : null;
+                double? avgValue = myFeedback.Count > 0
+                    ? Math.Round(myFeedback.Average(f => f.ValueRating), 2) : null;
 
                 double? overallScore = (avgOverall.HasValue && avgTimeliness.HasValue
-                                     && avgComm.HasValue && avgValue.HasValue)
+                                     && avgCommunication.HasValue && avgValue.HasValue)
                     ? Math.Round((avgOverall.Value + avgTimeliness.Value
-                                + avgComm.Value + avgValue.Value) / 4.0, 2)
+                                + avgCommunication.Value + avgValue.Value) / 4.0, 2)
                     : (double?)null;
 
                 result.Add(new
                 {
-                    designerId = g.DesignerId,
-                    designerName = g.DesignerName,
-                    totalProjects = g.TotalProjects,
-                    completedProjects = g.CompletedProjects,
-                    activeProjects = g.ActiveProjects,
-                    avgCompletionDays = Math.Round(g.AvgCompletionDays ?? 0, 1),
-                    feedbackCount = fbs.Count,
+                    userId = d.Id,
+                    fullName = string.IsNullOrWhiteSpace(d.FullName)
+                        ? (d.Email ?? d.UserName ?? "Staff")
+                        : d.FullName,
+                    email = d.Email,
+                    totalProjects,
+                    activeProjects,
+                    completedProjects,
+                    openIssues,
+                    feedbackCount = myFeedback.Count,
                     avgOverallRating = avgOverall,
                     avgTimelinessRating = avgTimeliness,
-                    avgCommunicationRating = avgComm,
+                    avgCommunicationRating = avgCommunication,
                     avgValueRating = avgValue,
-                    recommendRate,
-                    overallScore,
-                    totalIssues = iss.Count,
-                    openIssues = iss.Count(i => i.Status == "Open" || i.Status == "InProgress"),
-                    issueRate = g.TotalProjects > 0
-                        ? Math.Round((double)iss.Count / g.TotalProjects * 100, 2)
-                        : 0.0
+                    overallScore
                 });
             }
 
-            // Sort by overall score descending
-            var sorted = result
-                .OrderByDescending(r => ((dynamic)r).overallScore ?? 0)
-                .ThenByDescending(r => ((dynamic)r).totalProjects)
-                .ToList();
-
-            return Results.Ok(sorted);
-        });
+            return Results.Ok(result);
+        })
+        .RequireAuthorization();
 
 
         // ============================================================
@@ -506,24 +532,23 @@ public static class BiEndpoints
             return Results.Ok(result);
         });
 
+       
         // ============================================================
-        // LOG RETENTION ACTION
+        // LOG RETENTION ACTION (supports manual retention of any customer)
         // POST /tenant/{companyId}/bi/retention/actions
         // ============================================================
         group.MapPost("/retention/actions", async (
-          int companyId,
-          RetentionActionPayload request,
-          HttpContext http,
-          ITenantDbContextFactory tenantFactory) =>
+            int companyId,
+            RetentionActionPayload request,
+            HttpContext http,
+            ITenantDbContextFactory tenantFactory,
+            UserManager<ApplicationUser> userManager) =>
         {
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
             if (request.CustomerId <= 0)
                 return Results.BadRequest(new { message = "CustomerId is required." });
-
-            if (string.IsNullOrWhiteSpace(request.Segment))
-                return Results.BadRequest(new { message = "Segment is required." });
 
             await using var db = await tenantFactory.CreateAsync(companyId);
 
@@ -538,33 +563,113 @@ public static class BiEndpoints
             var userId = http.User.FindFirst(
                 System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
 
-            var activity = new CRM.domain.Entities.Activity
+            var user = await userManager.FindByIdAsync(userId);
+            var userName = user?.FullName ?? user?.Email ?? "Staff";
+
+            // Determine if this is a manual retention (any customer)
+            var isManual = string.Equals(request.Source, "Manual",
+                StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(request.Segment)
+                || request.Segment == "Manual";
+
+            var segment = string.IsNullOrWhiteSpace(request.Segment)
+                ? "Manual"
+                : request.Segment;
+
+            // Build offer description
+            var offerDesc = request.OfferDescription;
+            if (string.IsNullOrWhiteSpace(offerDesc) && request.OfferValue.HasValue)
+            {
+                offerDesc = request.OfferType switch
+                {
+                    "Percentage" => $"{request.OfferValue}% discount",
+                    "FixedAmount" => $"₱{request.OfferValue:N0} discount",
+                    "FreeService" => "Free consultation",
+                    _ => "Custom offer"
+                };
+            }
+
+            // Create RetentionAction record
+            var action = new CRM.domain.Entities.RetentionAction
             {
                 CompanyId = companyId,
                 CustomerId = customer.CustomerId,
+                ProjectId = request.ProjectId,
+                OfferType = string.IsNullOrWhiteSpace(request.OfferType)
+                    ? "Custom"
+                    : request.OfferType,
+                OfferValue = request.OfferValue,
+                OfferDescription = offerDesc ?? "",
+                Segment = segment,
+                Basis = request.Basis ?? "",
+                Notes = request.Notes ?? "",
+                ScriptUsed = request.Script ?? "",
+                Source = isManual ? "Manual" : "Automated",
+                ActionTaken = string.IsNullOrWhiteSpace(request.ActionTaken)
+                    ? "Retention offer"
+                    : request.ActionTaken,
+                Status = "Logged",
+                FollowUpDate = request.FollowUpDate,
+                CreatedByUserId = userId,
+                CreatedByName = userName,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            db.RetentionActions.Add(action);
+
+            // If this retention action uses a promotion, mark it as used
+            if (request.PromotionId.HasValue && request.PromotionId.Value > 0)
+            {
+                var promo = await db.Promotions
+                    .FirstOrDefaultAsync(p => p.PromotionId == request.PromotionId.Value
+                                           && p.CompanyId == companyId);
+
+                if (promo is not null)
+                {
+                    promo.UsedCount++;
+
+                    // Auto-deactivate if max uses reached
+                    if (promo.MaxUses.HasValue && promo.UsedCount >= promo.MaxUses.Value)
+                        promo.IsActive = false;
+                }
+            }
+
+            // Also log an Activity for the timeline
+            db.Activities.Add(new CRM.domain.Entities.Activity
+            {
+                CompanyId = companyId,
+                CustomerId = customer.CustomerId,
+                ProjectId = request.ProjectId,
                 ActivityType = "RetentionAction",
-                Subject = $"[{request.Segment}] {request.ActionTaken}",
-                Description = request.Script ?? "",
+                Subject = $"[{segment}] {action.ActionTaken}",
+                Description = string.IsNullOrWhiteSpace(offerDesc)
+                    ? (request.Script ?? "")
+                    : $"Offer: {offerDesc}\n{request.Script}",
                 ActivityDate = DateTime.UtcNow,
                 FollowUpDate = request.FollowUpDate,
                 Status = "Completed",
-                Notes = $"Basis: {request.Basis ?? "n/a"}"
-            };
+                Notes = $"Basis: {request.Basis ?? "n/a"}  ·  By: {userName}"
+            });
 
-            db.Activities.Add(activity);
             await db.SaveChangesAsync();
 
             return Results.Created(
-                $"/tenant/{companyId}/activities/{activity.ActivityId}",
+                $"/tenant/{companyId}/bi/retention/actions/{action.RetentionActionId}",
                 new
                 {
-                    message = "Retention action logged.",
-                    activityId = activity.ActivityId,
+                    message = isManual
+                        ? "Manual retention logged successfully."
+                        : "Retention action logged successfully.",
+                    retentionActionId = action.RetentionActionId,
                     customerId = customer.CustomerId,
                     customerName = $"{customer.FirstName} {customer.LastName}".Trim(),
-                    segment = request.Segment,
-                    actionTaken = request.ActionTaken,
-                    activityDate = activity.ActivityDate
+                    segment,
+                    source = action.Source,
+                    offerType = action.OfferType,
+                    offerValue = action.OfferValue,
+                    offerDescription = action.OfferDescription,
+                    actionTaken = action.ActionTaken,
+                    createdAt = action.CreatedAt
                 });
         })
         .RequireAuthorization();
@@ -577,10 +682,22 @@ public static class BiEndpoints
     public class RetentionActionPayload
     {
         public int CustomerId { get; set; }
+        public int? ProjectId { get; set; }
         public string Segment { get; set; } = string.Empty;
         public string ActionTaken { get; set; } = string.Empty;
         public string? Basis { get; set; }
         public string? Script { get; set; }
         public DateTime? FollowUpDate { get; set; }
+
+        // ---- Offer ----
+        public string? OfferType { get; set; }
+        public decimal? OfferValue { get; set; }
+        public string? OfferDescription { get; set; }
+
+        // ---- NEW: link to a promotion ----
+        public int? PromotionId { get; set; }
+
+        public string? Notes { get; set; }
+        public string? Source { get; set; }
     }
 }

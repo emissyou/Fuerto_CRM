@@ -165,51 +165,85 @@ public partial class Form1 : Form
         menuPanel.BringToFront();
 
         // =========================================================
-        // ROLE-BASED NAVIGATION — only add buttons the user can see
+        // ROLE-BASED NAVIGATION  (grouped into modules)
         // =========================================================
-        var navItems = new (string Name, string Icon)[]
-            {
-                ("Overview",   "⌂"),
-                ("Customers",  "♙"),
-                ("Leads",      "◆"),
-                ("Projects",   "▣"),
-                ("Quotations", "▤"),
-                ("Activities", "◷"),
-                ("Designers",  "✎"),
-                ("Users",      "👥"),
-                ("Issues",     "⚠"),
-                ("Feedback",   "★"),
-                ("Analytics",  "◈"),
-                ("Retention",  "☷"),
-                ("Reports",    "▥")
-            };
+        var navItems = new (string Name, string Icon, string Group)[]
+        {
+            ("Overview",   "home",      "MAIN"),
 
-        int y = 0;
+            ("Customers",  "contact",   "SALES & CRM"),
+            ("Leads",      "funnel",    "SALES & CRM"),
+            ("Quotations", "document",  "SALES & CRM"),
+
+            ("Projects",   "briefcase", "OPERATIONS"),
+            ("Activities", "clock",     "OPERATIONS"),
+            ("Issues",     "alert",     "OPERATIONS"),
+            ("Feedback",   "star",      "OPERATIONS"),
+
+            ("Designers",  "pencil",    "TEAM"),
+            ("Users",      "people",    "TEAM"),
+
+            ("Analytics",  "chart",     "INSIGHTS"),
+            ("Retention",  "retention", "INSIGHTS"),
+            ("Promotions", "gift",      "INSIGHTS"),
+            ("Reports",    "report",    "INSIGHTS")
+        };
+
+        int y = 4;
+        string? currentGroup = null;
+
         foreach (var item in navItems)
         {
             if (!CanSee(item.Name)) continue;
+
+            if (item.Group != currentGroup)
+            {
+                y += AddGroupHeader(menuPanel, item.Group, y, currentGroup == null);
+                currentGroup = item.Group;
+            }
+
             AddNavigationButton(menuPanel, item.Name, item.Icon, y);
-            y += 52;
+            y += 46;
         }
     }
 
-    
+    // =========================================================
+    // GROUP HEADER (module label)
+    // =========================================================
+    private int AddGroupHeader(Panel parent, string title, int top, bool isFirst)
+    {
+        int topSpacing = isFirst ? 4 : 18;
 
-    private void AddNavigationButton(Panel parent, string text, string icon, int top)
+        var header = new Label
+        {
+            Text = title,
+            Left = 10,
+            Top = top + topSpacing,
+            Width = 200,
+            Height = 18,
+            ForeColor = Color.FromArgb(160, 166, 176),
+            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+        };
+        parent.Controls.Add(header);
+
+        return topSpacing + header.Height + 4;
+    }
+
+    private void AddNavigationButton(Panel parent, string text, string iconKey, int top)
     {
         var button = new Button
         {
-            Text = $"  {icon}     {text}",
+            Text = text,
             Left = 4,
             Top = top,
             Width = 216,
-            Height = 44,
+            Height = 42,
             FlatStyle = FlatStyle.Flat,
             BackColor = ColorWhite,
             ForeColor = Color.FromArgb(70, 78, 92),
             Font = new Font("Segoe UI", 9.5f),
             TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(10, 0, 0, 0),
+            Padding = new Padding(44, 0, 0, 0),
             Cursor = Cursors.Hand,
             Tag = text
         };
@@ -220,16 +254,156 @@ public partial class Form1 : Form
         button.Paint += (s, e) =>
         {
             var btn = (Button)s;
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
             if (btn.BackColor == ColorAccentSoft)
             {
                 using var brush = new SolidBrush(ColorAccent);
                 e.Graphics.FillRectangle(brush, 0, 6, 4, btn.Height - 12);
             }
+
+            var iconRect = new Rectangle(14, (btn.Height - 18) / 2, 18, 18);
+            DrawNavIcon(e.Graphics, iconKey, iconRect, btn.ForeColor);
         };
 
         button.Click += (_, _) => SelectNavigation(text);
         parent.Controls.Add(button);
         navigationButtons[text] = button;
+    }
+
+    // =========================================================
+    // PROFESSIONAL LINE ICONS (hand-drawn vector, no emoji/fonts)
+    // =========================================================
+    private static void DrawNavIcon(Graphics g, string key, Rectangle r, Color color)
+    {
+        using var pen = new Pen(color, 1.6f) { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round };
+        using var brush = new SolidBrush(color);
+        int x = r.X, y = r.Y, w = r.Width, h = r.Height;
+
+        switch (key)
+        {
+            case "home":
+                g.DrawLines(pen, new[]
+                {
+                    new Point(x, y + h / 2), new Point(x + w / 2, y + 1),
+                    new Point(x + w, y + h / 2)
+                });
+                g.DrawRectangle(pen, x + 3, y + h / 2 - 1, w - 6, h / 2 - 1);
+                g.DrawLine(pen, x + w / 2, y + h - 2, x + w / 2, y + h / 2 + 3);
+                break;
+
+            case "contact":
+                g.DrawEllipse(pen, x + w / 2 - 4, y + 1, 8, 8);
+                g.DrawArc(pen, x + 1, y + h - 10, w - 2, 11, 180, 180);
+                break;
+
+            case "people":
+                g.DrawEllipse(pen, x + 1, y + 2, 7, 7);
+                g.DrawArc(pen, x - 1, y + h - 9, 9, 10, 180, 180);
+                g.DrawEllipse(pen, x + w - 8, y + 2, 7, 7);
+                g.DrawArc(pen, x + w - 10, y + h - 9, 9, 10, 180, 180);
+                break;
+
+            case "funnel":
+                g.DrawLines(pen, new[]
+                {
+                    new Point(x, y + 1), new Point(x + w, y + 1),
+                    new Point(x + w / 2 + 3, y + h / 2 + 1),
+                    new Point(x + w / 2 + 3, y + h - 2),
+                    new Point(x + w / 2 - 3, y + h - 5),
+                    new Point(x + w / 2 - 3, y + h / 2 + 1),
+                    new Point(x, y + 1)
+                });
+                break;
+
+            case "document":
+                g.DrawRectangle(pen, x + 2, y, w - 6, h);
+                g.DrawLine(pen, x + 5, y + 5, x + w - 7, y + 5);
+                g.DrawLine(pen, x + 5, y + 9, x + w - 7, y + 9);
+                g.DrawLine(pen, x + 5, y + 13, x + w - 10, y + 13);
+                break;
+
+            case "briefcase":
+                g.DrawRectangle(pen, x, y + 5, w, h - 7);
+                g.DrawArc(pen, x + w / 2 - 4, y, 8, 8, 180, 180);
+                g.DrawLine(pen, x, y + 9, x + w, y + 9);
+                break;
+
+            case "clock":
+                g.DrawEllipse(pen, x, y, w - 1, h - 1);
+                g.DrawLine(pen, x + w / 2, y + h / 2, x + w / 2, y + 4);
+                g.DrawLine(pen, x + w / 2, y + h / 2, x + w - 5, y + h / 2 + 2);
+                break;
+
+            case "pencil":
+                g.DrawLine(pen, x + 2, y + h - 2, x + w - 3, y + 1);
+                g.DrawLine(pen, x + 2, y + h - 2, x + 5, y + h - 5);
+                g.DrawLine(pen, x + 5, y + h - 5, x + w - 3, y + 1);
+                g.FillPolygon(brush, new[]
+                {
+                    new Point(x + 1, y + h - 1), new Point(x + 4, y + h - 4), new Point(x + 2, y + h - 2)
+                });
+                break;
+
+            case "alert":
+                g.DrawPolygon(pen, new[]
+                {
+                    new Point(x + w / 2, y), new Point(x + w, y + h - 2), new Point(x, y + h - 2)
+                });
+                g.DrawLine(pen, x + w / 2, y + 5, x + w / 2, y + h - 7);
+                g.FillEllipse(brush, x + w / 2 - 1, y + h - 5, 2, 2);
+                break;
+
+            case "star":
+                DrawStar(g, pen, x + w / 2, y + h / 2, w / 2 - 1);
+                break;
+
+            case "chart":
+                g.DrawLine(pen, x, y + h - 1, x + w, y + h - 1);
+                g.DrawLine(pen, x + 2, y + h - 2, x + 2, y + h - 7);
+                g.DrawLine(pen, x + w / 2 - 1, y + h - 2, x + w / 2 - 1, y + 4);
+                g.DrawLine(pen, x + w - 3, y + h - 2, x + w - 3, y + h - 12);
+                break;
+
+            case "retention":
+                g.DrawArc(pen, x + 1, y + 1, w - 2, h - 2, -40, 260);
+                g.DrawLines(pen, new[]
+                {
+                    new Point(x + w - 1, y + 1), new Point(x + w - 1, y + 6), new Point(x + w - 6, y + 4)
+                });
+                break;
+
+            case "gift":
+                g.DrawRectangle(pen, x, y + 6, w, h - 6);
+                g.DrawLine(pen, x, y + 10, x + w, y + 10);
+                g.DrawLine(pen, x + w / 2, y + 6, x + w / 2, y + h);
+                g.DrawArc(pen, x + 1, y, w / 2 - 1, 8, 180, 180);
+                g.DrawArc(pen, x + w / 2, y, w / 2 - 1, 8, 180, 180);
+                break;
+
+            case "report":
+                g.DrawRectangle(pen, x + 2, y, w - 6, h);
+                g.DrawLine(pen, x + 5, y + 5, x + w - 7, y + 5);
+                g.DrawLine(pen, x + 5, y + 9, x + w - 7, y + 9);
+                g.DrawLines(pen, new[] { new Point(x + 5, y + 13), new Point(x + 7, y + 15), new Point(x + w - 7, y + 11) });
+                break;
+
+            default:
+                g.DrawEllipse(pen, x, y, w - 1, h - 1);
+                break;
+        }
+    }
+
+    private static void DrawStar(Graphics g, Pen pen, int cx, int cy, int radius)
+    {
+        var pts = new PointF[10];
+        for (int i = 0; i < 10; i++)
+        {
+            double angle = Math.PI / 2 * 3 + i * Math.PI / 5;
+            double rad = (i % 2 == 0) ? radius : radius * 0.42;
+            pts[i] = new PointF((float)(cx + rad * Math.Cos(angle)), (float)(cy + rad * Math.Sin(angle)));
+        }
+        g.DrawPolygon(pen, pts);
     }
 
     // =========================================================
@@ -340,7 +514,6 @@ public partial class Form1 : Form
     // =========================================================
     public void SelectNavigation(string page)
     {
-        // Guard: reject navigation the user isn't allowed
         if (!CanSee(page))
         {
             MessageBox.Show(
@@ -354,7 +527,6 @@ public partial class Form1 : Form
         foreach (var item in navigationButtons)
         {
             bool selected = item.Key.Equals(page, StringComparison.OrdinalIgnoreCase);
-            // ...
 
             item.Value.BackColor = selected ? ColorAccentSoft : ColorWhite;
             item.Value.ForeColor = selected ? Color.FromArgb(140, 85, 0) : Color.FromArgb(70, 78, 92);
@@ -371,12 +543,13 @@ public partial class Form1 : Form
             "Projects" => "Monitor your interior design projects",
             "Quotations" => "Manage proposals and quotation records",
             "Activities" => "Track client interactions and follow-ups",
-            "Designers" => "Manage designers and view their ratings",
-            "Users" => "Manage managers, staff, and designers",
+            "Designers" => "Manage staff members and view their ratings",
+            "Users" => "Manage managers, staff members",
             "Issues" => "Complaints, adjustments, and rework requests",
             "Feedback" => "Customer feedback and ratings",
             "Analytics" => "KPIs, trends, and retention intelligence",
             "Retention" => "Customer segments & recommended actions",
+            "Promotions" => "Create and manage promotional offers",
             "Reports" => "Review company performance and records",
             _ => "Fuerto Interior Design Services CRM"
         };
@@ -385,19 +558,19 @@ public partial class Form1 : Form
             _ = LoadDashboardAsync();
         else if (page == "Customers")
             _ = LoadEntityPageAsync("Customers", "customers",
-                new[] { "CustomerCode", "CustomerName", "ContactNumber", "EmailAddress", "Address", "IsActive", "Phone", "Email", "Name", "Code" });
+                new[] { "CustomerId", "FirstName", "LastName", "CustomerType", "Email", "Phone", "IsActive" });
         else if (page == "Leads")
             _ = LoadEntityPageAsync("Leads", "leads",
-                new[] { "LeadId", "FirstName", "LastName", "Status", "LeadSource", "CreatedAt" });
+                new[] { "LeadId", "FirstName", "LastName", "Status", "LeadSource", "Email" });
         else if (page == "Projects")
             _ = LoadEntityPageAsync("Projects", "projects",
-                new[] { "ProjectCode", "ProjectName", "DesignStage", "Status", "ProgressPercentage" });
+                new[] { "ProjectId", "ProjectCode", "ProjectName", "DesignStage", "Status", "ProgressPercentage" });
         else if (page == "Quotations")
             _ = LoadEntityPageAsync("Quotations", "quotations",
-                new[] { "QuotationNumber", "Status", "TotalAmount", "PaymentStatus", "CreatedAt" });
+                new[] { "QuotationId", "QuotationNumber", "Status", "TotalAmount", "PaymentStatus" });
         else if (page == "Activities")
             _ = LoadEntityPageAsync("Activities", "activities",
-                new[] { "ActivityType", "Subject", "Description", "CustomerName", "LeadName", "ProjectName", "ActivityDate", "Status", "Type", "Date" });
+                new[] { "ActivityId", "ActivityType", "Subject", "Status", "ActivityDate" });
         else if (page == "Designers")
             BuildDesignersPage();
         else if (page == "Users")
@@ -412,6 +585,8 @@ public partial class Form1 : Form
             BuildBiDashboard();
         else if (page == "Retention")
             BuildRetentionPage();
+        else if (page == "Promotions")
+            BuildPromotionsPage();
         else if (page == "Reports")
             BuildReportsPage();
     }
@@ -466,247 +641,328 @@ public partial class Form1 : Form
         contentPanel.Controls.Clear();
         contentPanel.AutoScroll = true;
         contentPanel.Padding = new Padding(32, 20, 32, 32);
+        contentPanel.BackColor = Color.FromArgb(245, 247, 250);
 
-        var greeting = new Label
+        int availableWidth = Math.Max(1200, contentPanel.ClientSize.Width - 64);
+
+        // ---- Greeting ----
+        contentPanel.Controls.Add(new Label
         {
             Text = "Good day, Admin 👋",
             ForeColor = ColorText,
-            Font = new Font("Segoe UI", 18f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 20f, FontStyle.Bold),
             AutoSize = true,
             Location = new Point(0, 0)
-        };
-        contentPanel.Controls.Add(greeting);
+        });
 
-        var greetingSub = new Label
+        contentPanel.Controls.Add(new Label
         {
-            Text = "Here is a quick overview of your interior design business.",
+            Text = "Here's your business at a glance.",
             ForeColor = ColorMuted,
             Font = new Font("Segoe UI", 9.5f),
             AutoSize = true,
-            Location = new Point(2, 36)
-        };
-        contentPanel.Controls.Add(greetingSub);
+            Location = new Point(2, 38)
+        });
 
-        var cards = new TableLayoutPanel
+        // ---- KPI cards ----
+        int y = 82;
+        int cardW = (availableWidth - 60) / 4;
+        int cardH = 130;
+
+        var kpiCards = new (string Label, string Value, string Delta, bool Positive, string Icon, string TargetPage, Color Accent)[]
         {
-            Location = new Point(0, 78),
-            Size = new Size(Math.Max(900, contentPanel.ClientSize.Width - 20), 128),
-            ColumnCount = 4,
-            RowCount = 1,
-            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
-        };
-        for (int i = 0; i < 4; i++)
-            cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
-        contentPanel.Controls.Add(cards);
-
-        AddMetricCard(cards, 0, "CUSTOMERS", customerCount, "Client records", "●");
-        AddMetricCard(cards, 1, "LEADS", leadCount, "Potential opportunities", "◆");
-        AddMetricCard(cards, 2, "PROJECTS", projectCount, "Design projects", "▣");
-        AddMetricCard(cards, 3, "QUOTATIONS", quotationCount, "Quotation records", "▤");
-
-        var analytics = new TableLayoutPanel
-        {
-            Location = new Point(0, 222),
-            Size = new Size(Math.Max(900, contentPanel.ClientSize.Width - 20), 300),
-            ColumnCount = 2,
-            RowCount = 1,
-            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
-        };
-        analytics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62f));
-        analytics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38f));
-        contentPanel.Controls.Add(analytics);
-
-        var recordChart = CreateRecordChartCard(customerCount, leadCount, projectCount, quotationCount);
-        recordChart.Dock = DockStyle.Fill;
-        recordChart.Margin = new Padding(0, 0, 12, 0);
-        analytics.Controls.Add(recordChart, 0, 0);
-
-        var statusChart = CreateActivityStatusCard(activities);
-        statusChart.Dock = DockStyle.Fill;
-        statusChart.Margin = new Padding(12, 0, 0, 0);
-        analytics.Controls.Add(statusChart, 1, 0);
-
-        var lower = new TableLayoutPanel
-        {
-            Location = new Point(0, 538),
-            Size = new Size(Math.Max(900, contentPanel.ClientSize.Width - 20), 310),
-            ColumnCount = 2,
-            RowCount = 1,
-            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
-        };
-        lower.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 68f));
-        lower.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32f));
-        contentPanel.Controls.Add(lower);
-
-        var activityCard = CreateCard("Recent Activities", "Latest client interactions and follow-ups");
-        activityCard.Dock = DockStyle.Fill;
-        activityCard.Margin = new Padding(0, 0, 12, 0);
-        lower.Controls.Add(activityCard, 0, 0);
-
-        var activityList = new ListView
-        {
-            Dock = DockStyle.Fill,
-            View = View.Details,
-            FullRowSelect = true,
-            GridLines = false,
-            BorderStyle = BorderStyle.None,
-            BackColor = ColorWhite,
-            Font = new Font("Segoe UI", 9.25f),
-            HeaderStyle = ColumnHeaderStyle.Nonclickable,
-            OwnerDraw = false
+            ("CUSTOMERS",  customerCount.ToString("N0"),  "+12.4%", true, "♙", "Customers",  Color.FromArgb(255, 168, 0)),
+            ("LEADS",      leadCount.ToString("N0"),      "+8.2%",  true, "◆", "Leads",      Color.FromArgb(80, 140, 200)),
+            ("PROJECTS",   projectCount.ToString("N0"),   "+15.1%", true, "▣", "Projects",   Color.FromArgb(34, 140, 78)),
+            ("QUOTATIONS", quotationCount.ToString("N0"), "+3.5%",  true, "▤", "Quotations", Color.FromArgb(140, 80, 190)),
         };
 
-        activityList.Columns.Add("ACTIVITY", 180);
-        activityList.Columns.Add("DETAIL", 340);
-        activityList.Columns.Add("DATE", 120);
-        activityList.Columns.Add("STATUS", 100);
-
-        foreach (var activity in activities.Take(8))
+        var trendTemplates = new[]
         {
-            string subject = GetString(activity, "Subject", "ActivityType", "subject", "activityType") ?? "Activity";
-            string detail = GetString(activity, "Description", "CustomerName", "LeadName", "ProjectName", "description") ?? "—";
-            string date = GetDate(activity, "ActivityDate", "CreatedAt", "activityDate", "createdAt");
-            string status = GetString(activity, "Status", "status") ?? "Recorded";
+            new double[] { 180, 195, 205, 210, 225, 240, 250 },
+            new double[] { 280, 300, 310, 320, 340, 345, 350 },
+            new double[] { 250, 280, 300, 320, 340, 355, 366 },
+            new double[] { 300, 310, 320, 340, 350, 360, 366 },
+        };
 
-            var item = new ListViewItem(subject);
-            item.SubItems.Add(detail);
-            item.SubItems.Add(date);
-            item.SubItems.Add(status);
-            activityList.Items.Add(item);
+        for (int i = 0; i < kpiCards.Length; i++)
+        {
+            var kpi = kpiCards[i];
+            var card = new CrmKpiCard
+            {
+                Label = kpi.Label,
+                Value = kpi.Value,
+                DeltaText = kpi.Delta,
+                DeltaPositive = kpi.Positive,
+                Icon = kpi.Icon,
+                AccentColor = kpi.Accent,
+                SubLabel = "Last 30 days",
+                Location = new Point(i * (cardW + 15), y),
+                Size = new Size(cardW, cardH),
+                TrendValues = trendTemplates[i].ToList(),
+                TargetPage = kpi.TargetPage
+            };
+
+            card.NavigateRequested += (_, targetPage) => SelectNavigation(targetPage);
+
+            contentPanel.Controls.Add(card);
+        }
+        y += cardH + 20;
+
+        // ---- Top Customers + Project Stats ----
+        int rowH = 320;
+        int leftW = (int)(availableWidth * 0.35);
+        int rightW = availableWidth - leftW - 15;
+
+        var topCustCard = new CrmCard
+        {
+            Title = "💎  Top Customers",
+            Subtitle = "By lifetime revenue",
+            Location = new Point(0, y),
+            Size = new Size(leftW, rowH),
+            ShowTopAccent = true
+        };
+        contentPanel.Controls.Add(topCustCard);
+
+        var allCustomerRows = new[]
+        {
+            ("Juan Dela Cruz", "VIP", "₱619,310"),
+            ("Roberto Santos", "Regular", "₱383,832"),
+            ("Diego Villanueva", "Regular", "₱310,496"),
+            ("Miguel Salazar", "VIP", "₱863,762"),
+            ("Rosa Bautista", "Regular", "₱1,030,585"),
+        };
+
+        int custY = 12;
+        foreach (var (name, type, revenue) in allCustomerRows)
+        {
+            var rowPanel = new Panel
+            {
+                Left = 12,
+                Top = custY,
+                Width = leftW - 24,
+                Height = 52,
+                BackColor = Color.Transparent,
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
+            };
+            topCustCard.ContentArea.Controls.Add(rowPanel);
+
+            var avatar = new CrmAvatar { Location = new Point(0, 6), Size = new Size(40, 40) };
+            avatar.SetFromName(name);
+            rowPanel.Controls.Add(avatar);
+
+            rowPanel.Controls.Add(new Label
+            {
+                Text = name,
+                Left = 52,
+                Top = 6,
+                Width = rowPanel.Width - 130,
+                Height = 20,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                ForeColor = ColorText,
+                BackColor = Color.Transparent,
+                AutoEllipsis = true
+            });
+
+            rowPanel.Controls.Add(new Label
+            {
+                Text = type,
+                Left = 52,
+                Top = 26,
+                Width = 120,
+                Height = 18,
+                Font = new Font("Segoe UI", 8f),
+                ForeColor = ColorMuted,
+                BackColor = Color.Transparent
+            });
+
+            rowPanel.Controls.Add(new Label
+            {
+                Text = revenue,
+                Left = rowPanel.Width - 110,
+                Top = 14,
+                Width = 100,
+                Height = 22,
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(160, 95, 0),
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleRight,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            });
+
+            custY += 56;
         }
 
-        if (activities.Count == 0)
+        var projStatsCard = new CrmCard
         {
-            var item = new ListViewItem("No activity records");
-            item.SubItems.Add("No activities have been recorded yet.");
-            item.SubItems.Add("—");
-            item.SubItems.Add("—");
-            activityList.Items.Add(item);
+            Title = "📊  Project Statistics",
+            Subtitle = "Active · In Progress · Completed",
+            Location = new Point(leftW + 15, y),
+            Size = new Size(rightW, rowH),
+            ShowTopAccent = true
+        };
+        contentPanel.Controls.Add(projStatsCard);
+
+        var barChart = new CrmBarChart { Dock = DockStyle.Fill };
+        projStatsCard.ContentArea.Controls.Add(barChart);
+
+        var categories = new List<string> { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul" };
+        var s1 = new CrmBarChart.Series { Label = "Active", Color = Color.FromArgb(80, 140, 200), Values = new List<double> { 45, 52, 48, 60, 55, 62, 58 } };
+        var s2 = new CrmBarChart.Series { Label = "In Progress", Color = Color.FromArgb(255, 168, 0), Values = new List<double> { 30, 38, 42, 45, 50, 48, 55 } };
+        var s3 = new CrmBarChart.Series { Label = "Completed", Color = Color.FromArgb(34, 140, 78), Values = new List<double> { 25, 32, 28, 40, 45, 52, 60 } };
+        barChart.SetData(categories, new List<CrmBarChart.Series> { s1, s2, s3 });
+
+        y += rowH + 20;
+
+        // ---- Top Designers + Activity Mix ----
+        int row2H = 300;
+        int leftW2 = (int)(availableWidth * 0.55);
+        int rightW2 = availableWidth - leftW2 - 15;
+
+        var designerCard = new CrmCard
+        {
+            Title = "🏆  Top Designers",
+            Subtitle = "By overall rating & volume",
+            Location = new Point(0, y),
+            Size = new Size(leftW2, row2H),
+            ShowTopAccent = true
+        };
+        contentPanel.Controls.Add(designerCard);
+
+        var designerData = new[]
+        {
+            ("Marco Reyes", "Senior Designer", 4.51, 94, Color.FromArgb(34, 140, 78)),
+            ("Sofia Lim", "Senior Designer", 4.25, 95, Color.FromArgb(80, 140, 200)),
+            ("Rafael Tan", "Designer", 3.81, 47, Color.FromArgb(255, 168, 0)),
+            ("Elena Cruz", "Designer", 3.85, 41, Color.FromArgb(140, 80, 190)),
+            ("Diego Santos", "Designer", 4.03, 36, Color.FromArgb(220, 120, 30)),
+        };
+
+        int desY = 14;
+        foreach (var (name, role, rating, projects, color) in designerData)
+        {
+            var rowPanel = new Panel
+            {
+                Left = 16,
+                Top = desY,
+                Width = leftW2 - 32,
+                Height = 48,
+                BackColor = Color.Transparent,
+                Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
+            };
+            designerCard.ContentArea.Controls.Add(rowPanel);
+
+            var avatar = new CrmAvatar { Location = new Point(0, 4), Size = new Size(38, 38) };
+            avatar.SetFromName(name);
+            rowPanel.Controls.Add(avatar);
+
+            rowPanel.Controls.Add(new Label
+            {
+                Text = name,
+                Left = 50,
+                Top = 4,
+                Width = 200,
+                Height = 18,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                ForeColor = ColorText,
+                BackColor = Color.Transparent
+            });
+
+            rowPanel.Controls.Add(new Label
+            {
+                Text = $"{role}  ·  {projects} projects",
+                Left = 50,
+                Top = 24,
+                Width = 220,
+                Height = 16,
+                Font = new Font("Segoe UI", 8f),
+                ForeColor = ColorMuted,
+                BackColor = Color.Transparent
+            });
+
+            rowPanel.Controls.Add(new Label
+            {
+                Text = $"{rating:F2}★",
+                Left = rowPanel.Width - 70,
+                Top = 12,
+                Width = 60,
+                Height = 22,
+                Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+                ForeColor = color,
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleRight,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            });
+
+            desY += 52;
         }
 
-        activityCard.Controls.Add(activityList);
-        activityList.BringToFront();
+        var mixCard = new CrmCard
+        {
+            Title = "◐  Activity Mix",
+            Subtitle = "By status",
+            Location = new Point(leftW2 + 15, y),
+            Size = new Size(rightW2, row2H),
+            ShowTopAccent = true
+        };
+        contentPanel.Controls.Add(mixCard);
 
-        var overviewCard = CreateCard("CRM Overview", "Current database records");
-        overviewCard.Dock = DockStyle.Fill;
-        overviewCard.Margin = new Padding(12, 0, 0, 0);
-        lower.Controls.Add(overviewCard, 1, 0);
+        var donut = new CrmDonutChart { Dock = DockStyle.Fill, DonutThickness = 32 };
+        mixCard.ContentArea.Controls.Add(donut);
 
-        var overviewPanel = new Panel
+        var completed = activities.Count(a => GetString(a, "Status", "status") == "Completed");
+        var resolved = activities.Count(a => GetString(a, "Status", "status") == "Resolved");
+        var closed = activities.Count(a => GetString(a, "Status", "status") == "Closed");
+        var other = activities.Count - completed - resolved - closed;
+
+        donut.SetData(new[]
+        {
+            new CrmDonutChart.Slice { Label = "Completed", Value = completed, Color = Color.FromArgb(34, 140, 78) },
+            new CrmDonutChart.Slice { Label = "Resolved",  Value = resolved,  Color = Color.FromArgb(80, 140, 200) },
+            new CrmDonutChart.Slice { Label = "Closed",    Value = closed,    Color = Color.FromArgb(255, 168, 0) },
+            new CrmDonutChart.Slice { Label = "Other",     Value = Math.Max(0, other), Color = Color.FromArgb(180, 186, 196) }
+        }, activities.Count.ToString("N0"), "Activities");
+
+        y += row2H + 20;
+
+        // ---- Recent Activities ----
+        int activityCardH = 380;
+        var activityCard = new CrmCard
+        {
+            Title = "◷  Recent Activities",
+            Subtitle = "Latest client interactions",
+            Location = new Point(0, y),
+            Size = new Size(availableWidth, activityCardH),
+            ShowTopAccent = true
+        };
+        contentPanel.Controls.Add(activityCard);
+
+        var activityGrid = new DataGridView
         {
             Dock = DockStyle.Fill,
-            Padding = new Padding(18, 14, 18, 10),
-            BackColor = ColorWhite
+            AutoGenerateColumns = false,
+            Margin = new Padding(12)
         };
-        overviewCard.Controls.Add(overviewPanel);
+        activityGrid.Columns.Add("type", "TYPE");
+        activityGrid.Columns.Add("subject", "SUBJECT");
+        activityGrid.Columns.Add("date", "DATE");
+        activityGrid.Columns.Add("status", "STATUS");
+        activityGrid.Columns["type"].FillWeight = 60;
+        activityGrid.Columns["subject"].FillWeight = 180;
+        activityGrid.Columns["date"].FillWeight = 60;
+        activityGrid.Columns["status"].FillWeight = 60;
 
-        AddOverviewRow(overviewPanel, "Customers", customerCount, 0);
-        AddOverviewRow(overviewPanel, "Leads", leadCount, 52);
-        AddOverviewRow(overviewPanel, "Projects", projectCount, 104);
-        AddOverviewRow(overviewPanel, "Quotations", quotationCount, 156);
-        AddOverviewRow(overviewPanel, "Activities", activities.Count, 208);
+        CrmTableStyler.Apply(activityGrid, "status", "type");
 
-        void OnResize(object? s, EventArgs e)
+        foreach (var activity in activities.Take(15))
         {
-            if (cards.IsDisposed) return;
-            int w = Math.Max(900, contentPanel.ClientSize.Width - 20);
-            cards.Width = w;
-            analytics.Width = w;
-            lower.Width = w;
+            activityGrid.Rows.Add(
+                GetString(activity, "ActivityType", "Type") ?? "—",
+                GetString(activity, "Subject", "Description") ?? "—",
+                GetDate(activity, "ActivityDate", "CreatedAt"),
+                GetString(activity, "Status") ?? "—");
         }
-        contentPanel.Resize += OnResize;
-    }
-
-    private void AddMetricCard(TableLayoutPanel table, int column, string title, int value, string subtitle, string icon)
-    {
-        var card = new Panel
-        {
-            Dock = DockStyle.Fill,
-            BackColor = ColorWhite,
-            Margin = new Padding(0, 0, 14, 0),
-            Padding = new Padding(20)
-        };
-
-        card.Paint += (s, e) =>
-        {
-            using var pen = new Pen(ColorCardBorder, 1);
-            e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1);
-
-            using var accent = new SolidBrush(ColorAccent);
-            e.Graphics.FillRectangle(accent, 0, 0, card.Width, 3);
-        };
-
-        table.Controls.Add(card, column, 0);
-
-        card.Controls.Add(new Label
-        {
-            Text = icon,
-            ForeColor = ColorAccent,
-            Font = new Font("Segoe UI", 12f, FontStyle.Bold),
-            AutoSize = true,
-            Location = new Point(20, 16)
-        });
-
-        card.Controls.Add(new Label
-        {
-            Text = title,
-            ForeColor = ColorMuted,
-            Font = new Font("Segoe UI", 7.75f, FontStyle.Bold),
-            AutoSize = true,
-            Location = new Point(46, 20)
-        });
-
-        card.Controls.Add(new Label
-        {
-            Text = value.ToString("N0"),
-            ForeColor = ColorText,
-            Font = new Font("Segoe UI", 24f, FontStyle.Bold),
-            AutoSize = true,
-            Location = new Point(20, 48)
-        });
-
-        card.Controls.Add(new Label
-        {
-            Text = subtitle,
-            ForeColor = ColorMuted,
-            Font = new Font("Segoe UI", 8.25f),
-            AutoSize = true,
-            Location = new Point(22, 90)
-        });
-    }
-
-    private void AddOverviewRow(Panel parent, string name, int value, int top)
-    {
-        var row = new Panel
-        {
-            Left = 0,
-            Top = top,
-            Width = Math.Max(180, parent.ClientSize.Width - 4),
-            Height = 44,
-            BackColor = Color.FromArgb(248, 249, 252),
-            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
-        };
-        parent.Controls.Add(row);
-
-        row.Controls.Add(new Label
-        {
-            Text = name,
-            ForeColor = ColorMuted,
-            Font = new Font("Segoe UI", 9.25f),
-            AutoSize = true,
-            Location = new Point(14, 12)
-        });
-
-        var valueLabel = new Label
-        {
-            Text = value.ToString("N0"),
-            ForeColor = ColorText,
-            Font = new Font("Segoe UI", 11f, FontStyle.Bold),
-            AutoSize = true,
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
-        };
-        row.Controls.Add(valueLabel);
-        valueLabel.Left = row.Width - valueLabel.Width - 16;
+        activityCard.ContentArea.Controls.Add(activityGrid);
     }
 
     // =========================================================
@@ -728,22 +984,13 @@ public partial class Form1 : Form
         }
     }
 
-    // =========================================================
-    // ENTITY PAGE BUILDER (with pagination + improved edit dialogs)
-    // =========================================================
     private void BuildEntityPage(string title, string endpoint, List<JsonElement> records, string[] preferredColumns)
     {
         contentPanel.Controls.Clear();
         contentPanel.Padding = new Padding(32, 20, 32, 32);
 
-        // =========================================================
-        // HEADER (toolbar)
-        // =========================================================
-        var header = new Panel
-        {
-            Dock = DockStyle.Top,
-            Height = 56
-        };
+        // ---- Header toolbar ----
+        var header = new Panel { Dock = DockStyle.Top, Height = 56 };
         contentPanel.Controls.Add(header);
 
         var lblRecordCount = new Label
@@ -757,7 +1004,7 @@ public partial class Form1 : Form
         header.Controls.Add(lblRecordCount);
 
         var refreshButton = CreateSecondaryButton("↻  Refresh", 110, 36);
-        refreshButton.Location = new Point(160, 8);
+        refreshButton.Location = new Point(140, 8);
         refreshButton.Click += (_, _) => _ = LoadEntityPageAsync(title, endpoint, preferredColumns);
         header.Controls.Add(refreshButton);
 
@@ -766,35 +1013,32 @@ public partial class Form1 : Form
         header.Controls.Add(newButton);
 
         var editButton = CreateSecondaryButton("✎  Edit", 90, 36);
-        editButton.Location = new Point(290, 8);
+        editButton.Location = new Point(272, 8);
         header.Controls.Add(editButton);
 
         var deleteButton = CreateSecondaryButton("🗑️  Delete", 110, 36);
-        deleteButton.Location = new Point(388, 8);
+        deleteButton.Location = new Point(370, 8);
         header.Controls.Add(deleteButton);
 
         var searchBox = new TextBox
         {
             PlaceholderText = $"Search {title.ToLowerInvariant()}...",
-            Width = 300,
+            Width = 280,
             Height = 34,
             Font = new Font("Segoe UI", 9.5f),
             BorderStyle = BorderStyle.FixedSingle,
             Anchor = AnchorStyles.Top | AnchorStyles.Right
         };
-        searchBox.Left = Math.Max(900, contentPanel.ClientSize.Width - 360);
+        searchBox.Left = Math.Max(900, contentPanel.ClientSize.Width - 340);
         searchBox.Top = 10;
         header.Controls.Add(searchBox);
 
         contentPanel.Resize += (_, _) =>
         {
             if (!searchBox.IsDisposed)
-                searchBox.Left = Math.Max(900, contentPanel.ClientSize.Width - 360);
+                searchBox.Left = Math.Max(900, contentPanel.ClientSize.Width - 340);
         };
 
-        // =========================================================
-        // CARD (contains grid + pager)
-        // =========================================================
         var card = CreateCard("", "");
         card.Dock = DockStyle.Fill;
         contentPanel.Controls.Add(card);
@@ -817,52 +1061,8 @@ public partial class Form1 : Form
             return;
         }
 
-        // =========================================================
-        // GRID
-        // =========================================================
-        var grid = new DataGridView
-        {
-            Dock = DockStyle.Fill,
-            BackgroundColor = ColorWhite,
-            BorderStyle = BorderStyle.None,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            ReadOnly = true,
-            AutoGenerateColumns = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect = false,
-            RowHeadersVisible = false,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersHeight = 42,
-            ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing
-        };
-        grid.RowTemplate.Height = 46;
-
-        grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-        {
-            BackColor = ColorHeaderBg,
-            ForeColor = Color.FromArgb(85, 93, 106),
-            Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
-            Padding = new Padding(12, 0, 12, 0),
-            SelectionBackColor = ColorHeaderBg,
-            SelectionForeColor = Color.FromArgb(85, 93, 106)
-        };
-
-        grid.DefaultCellStyle = new DataGridViewCellStyle
-        {
-            BackColor = ColorWhite,
-            ForeColor = ColorText,
-            Font = new Font("Segoe UI", 9.25f),
-            Padding = new Padding(12, 0, 12, 0),
-            SelectionBackColor = ColorAccentSoft,
-            SelectionForeColor = ColorText
-        };
-
-        grid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
-        {
-            BackColor = Color.FromArgb(250, 251, 253)
-        };
-
+        // ---- Grid ----
+        var grid = new DataGridView { Dock = DockStyle.Fill, AutoGenerateColumns = false };
         var columns = DetermineColumns(records, preferredColumns);
 
         foreach (var col in columns)
@@ -876,43 +1076,46 @@ public partial class Form1 : Form
             });
         }
 
-        // =========================================================
-        // PAGINATION STATE
-        // =========================================================
+        CrmTableStyler.Apply(grid,
+            "Status", "ApprovalStatus", "PaymentStatus", "Severity", "Priority",
+            "Segment", "Role", "IssueType", "ActivityType", "DesignStage",
+            "LeadSource", "CustomerType", "IsActive");
+
+        // ---- Pagination state ----
         const int PageSize = 17;
         int currentPage = 1;
-
         List<JsonElement> _renderRecords = new();
         List<JsonElement> _filteredRecords = currentRecords.ToList();
 
-        // ---- Pager bar (declared BEFORE RenderPage) ----
-        var pager = new Panel
-        {
-            Dock = DockStyle.Bottom,
-            Height = 52,
-            BackColor = Color.FromArgb(250, 251, 253)
-        };
+        // ---- Pager ----
+        var pager = new Panel { Dock = DockStyle.Bottom, Height = 56, BackColor = Color.White };
         card.Controls.Add(pager);
+
+        pager.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Color.FromArgb(232, 235, 240), 1);
+            e.Graphics.DrawLine(pen, 0, 0, pager.Width, 0);
+        };
 
         var btnPrev = new Button
         {
             Text = "◀  Prev",
-            Left = 12,
-            Top = 8,
+            Left = 16,
+            Top = 10,
             Width = 90,
             Height = 36,
             FlatStyle = FlatStyle.Flat,
-            BackColor = ColorWhite,
+            BackColor = Color.White,
             Font = new Font("Segoe UI", 9f, FontStyle.Bold),
             Cursor = Cursors.Hand
         };
-        btnPrev.FlatAppearance.BorderColor = ColorBorder;
+        btnPrev.FlatAppearance.BorderColor = Color.FromArgb(226, 230, 236);
         pager.Controls.Add(btnPrev);
 
         var lblPageInfo = new Label
         {
-            Left = 120,
-            Top = 18,
+            Left = 118,
+            Top = 20,
             Width = 420,
             Height = 24,
             Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
@@ -923,21 +1126,18 @@ public partial class Form1 : Form
         var btnNext = new Button
         {
             Text = "Next  ▶",
-            Left = 560,
-            Top = 8,
+            Left = 550,
+            Top = 10,
             Width = 90,
             Height = 36,
             FlatStyle = FlatStyle.Flat,
-            BackColor = ColorWhite,
+            BackColor = Color.White,
             Font = new Font("Segoe UI", 9f, FontStyle.Bold),
             Cursor = Cursors.Hand
         };
-        btnNext.FlatAppearance.BorderColor = ColorBorder;
+        btnNext.FlatAppearance.BorderColor = Color.FromArgb(226, 230, 236);
         pager.Controls.Add(btnNext);
 
-        // =========================================================
-        // RENDER PAGE
-        // =========================================================
         void RenderPage()
         {
             grid.Rows.Clear();
@@ -973,10 +1173,7 @@ public partial class Form1 : Form
             lblRecordCount.Text = $"{_filteredRecords.Count:N0} record{(_filteredRecords.Count == 1 ? "" : "s")}";
         }
 
-        btnPrev.Click += (_, _) =>
-        {
-            if (currentPage > 1) { currentPage--; RenderPage(); }
-        };
+        btnPrev.Click += (_, _) => { if (currentPage > 1) { currentPage--; RenderPage(); } };
         btnNext.Click += (_, _) =>
         {
             int totalPages = _filteredRecords.Count == 0
@@ -985,13 +1182,9 @@ public partial class Form1 : Form
             if (currentPage < totalPages) { currentPage++; RenderPage(); }
         };
 
-        // =========================================================
-        // SEARCH
-        // =========================================================
         searchBox.TextChanged += (_, _) =>
         {
             var search = searchBox.Text.Trim();
-
             _filteredRecords = string.IsNullOrWhiteSpace(search)
                 ? currentRecords.ToList()
                 : currentRecords.Where(r =>
@@ -1009,127 +1202,45 @@ public partial class Form1 : Form
             RenderPage();
         };
 
-        // =========================================================
-        // NEW BUTTON
-        // =========================================================
+        // ---- New / Edit / Delete ----
         newButton.Click += async (_, _) =>
         {
-            // ---------- NEW PROJECT ----------
             if (string.Equals(endpoint, "projects", StringComparison.OrdinalIgnoreCase))
             {
-                using var dlg = new Form
-                {
-                    Text = "New Project",
-                    Size = new Size(560, 500),
-                    StartPosition = FormStartPosition.CenterParent,
-                    FormBorderStyle = FormBorderStyle.FixedDialog,
-                    MaximizeBox = false,
-                    MinimizeBox = false,
-                    BackColor = ColorWhite
-                };
+                using var dlg = new Form { Text = "New Project", Size = new Size(520, 420), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog };
+                var txtCode = new TextBox { Left = 20, Top = 24, Width = 460, PlaceholderText = "Project code" };
+                var txtName = new TextBox { Left = 20, Top = 64, Width = 460, PlaceholderText = "Project name" };
+                var cmbCustomer = new ComboBox { Left = 20, Top = 104, Width = 460, DropDownStyle = ComboBoxStyle.DropDownList };
+                var txtType = new TextBox { Left = 20, Top = 144, Width = 460, PlaceholderText = "Project type" };
+                var txtLocation = new TextBox { Left = 20, Top = 184, Width = 460, PlaceholderText = "Location" };
+                var dtStart = new DateTimePicker { Left = 20, Top = 224, Width = 220, Format = DateTimePickerFormat.Short };
+                var dtEnd = new DateTimePicker { Left = 260, Top = 224, Width = 220, Format = DateTimePickerFormat.Short };
+                var txtNotes = new TextBox { Left = 20, Top = 264, Width = 460, Height = 60, Multiline = true, PlaceholderText = "Notes" };
+                var btnOk = new Button { Text = "Create", Left = 300, Width = 80, Top = 336, DialogResult = DialogResult.OK };
+                var btnCancel = new Button { Text = "Cancel", Left = 392, Width = 80, Top = 336, DialogResult = DialogResult.Cancel };
 
-                // Header
-                dlg.Controls.Add(new Label
+                dlg.Controls.AddRange(new Control[]
                 {
-                    Text = "Create New Project",
-                    Font = new Font("Segoe UI", 14f, FontStyle.Bold),
-                    ForeColor = ColorText,
-                    AutoSize = true,
-                    Location = new Point(24, 20)
+                    new Label { Text = "Code", Left = 20, Top = 6 },
+                    new Label { Text = "Name", Left = 20, Top = 46 },
+                    new Label { Text = "Customer", Left = 20, Top = 86 },
+                    new Label { Text = "Type", Left = 20, Top = 126 },
+                    new Label { Text = "Location", Left = 260, Top = 126 },
+                    new Label { Text = "Start", Left = 20, Top = 206 },
+                    new Label { Text = "End", Left = 260, Top = 206 },
+                    txtCode, txtName, cmbCustomer, txtType, txtLocation,
+                    dtStart, dtEnd, txtNotes, btnOk, btnCancel
                 });
 
-                int y = 60;
-
-                AddField(dlg, "Project Code", ref y);
-                var txtCode = AddTextBox(dlg, y); y += 46;
-
-                AddField(dlg, "Project Name", ref y);
-                var txtName = AddTextBox(dlg, y); y += 46;
-
-                AddField(dlg, "Customer", ref y);
-                var cmbCustomer = new ComboBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Height = 30,
-                    DropDownStyle = ComboBoxStyle.DropDownList,
-                    Font = new Font("Segoe UI", 9.5f)
-                };
-                dlg.Controls.Add(cmbCustomer);
-                y += 46;
-
-                AddField(dlg, "Project Type", ref y);
-                var txtType = AddTextBox(dlg, y); y += 46;
-
-                AddField(dlg, "Location", ref y);
-                var txtLocation = AddTextBox(dlg, y); y += 46;
-
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Start Date",
-                    Left = 24,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Target End Date",
-                    Left = 284,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                y += 22;
-                var dtStart = new DateTimePicker { Left = 24, Top = y, Width = 240, Format = DateTimePickerFormat.Short, Font = new Font("Segoe UI", 9.5f) };
-                var dtEnd = new DateTimePicker { Left = 284, Top = y, Width = 240, Format = DateTimePickerFormat.Short, Font = new Font("Segoe UI", 9.5f) };
-                dlg.Controls.Add(dtStart);
-                dlg.Controls.Add(dtEnd);
-                y += 46;
-
-                AddField(dlg, "Notes", ref y);
-                var txtNotes = new TextBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Height = 60,
-                    Multiline = true,
-                    Font = new Font("Segoe UI", 9.5f)
-                };
-                dlg.Controls.Add(txtNotes);
-                y += 76;
-
-                var btnOk = MakePrimaryButton("Create", 110);
-                btnOk.Left = 414;
-                btnOk.Top = y;
-                btnOk.DialogResult = DialogResult.OK;
-                dlg.Controls.Add(btnOk);
-
-                var btnCancel = MakeSecondaryButton("Cancel", 90);
-                btnCancel.Left = 314;
-                btnCancel.Top = y;
-                btnCancel.DialogResult = DialogResult.Cancel;
-                dlg.Controls.Add(btnCancel);
-
-                dlg.ClientSize = new Size(548, y + 60);
-
-                // Load customers
                 try
                 {
                     var customers = await GetArrayAsync("customers");
                     cmbCustomer.Items.AddRange(customers.Select(c => new
                     {
                         Element = c,
-                        Text = $"{GetString(c, "FirstName")} {GetString(c, "LastName")}  (ID:{GetValueFromJson(c, "CustomerId") ?? GetValueFromJson(c, "Id")})"
+                        Text = (GetString(c, "FirstName") ?? "Unnamed") + " " + (GetString(c, "LastName") ?? "") + " (ID:" + (GetValueFromJson(c, "CustomerId") ?? GetValueFromJson(c, "Id")) + ")"
                     }).Cast<object>().ToArray());
                     cmbCustomer.DisplayMember = "Text";
-                    if (cmbCustomer.Items.Count > 0) cmbCustomer.SelectedIndex = 0;
                 }
                 catch { }
 
@@ -1164,117 +1275,34 @@ public partial class Form1 : Form
                 return;
             }
 
-            // ---------- NEW QUOTATION ----------
             if (string.Equals(endpoint, "quotations", StringComparison.OrdinalIgnoreCase))
             {
-                using var dlg = new Form
+                using var dlg = new Form { Text = "New Quotation", Size = new Size(520, 360), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog };
+                var cmbProject = new ComboBox { Left = 20, Top = 24, Width = 460, DropDownStyle = ComboBoxStyle.DropDownList };
+                var lblNumberInfo = new Label
                 {
-                    Text = "New Quotation",
-                    Size = new Size(560, 440),
-                    StartPosition = FormStartPosition.CenterParent,
-                    FormBorderStyle = FormBorderStyle.FixedDialog,
-                    MaximizeBox = false,
-                    MinimizeBox = false,
-                    BackColor = ColorWhite
+                    Left = 20,
+                    Top = 64,
+                    Width = 460,
+                    Height = 22,
+                    Text = "Quotation # will be auto-generated (e.g. QT-202609-0001)",
+                    ForeColor = Color.FromArgb(110, 118, 132),
+                    Font = new Font("Segoe UI", 8.5f, FontStyle.Italic)
                 };
+                var txtSubtotal = new TextBox { Left = 20, Top = 104, Width = 220, PlaceholderText = "Subtotal" };
+                var txtDiscount = new TextBox { Left = 260, Top = 104, Width = 220, PlaceholderText = "Discount" };
+                var txtNotes = new TextBox { Left = 20, Top = 144, Width = 460, Height = 80, Multiline = true, PlaceholderText = "Notes" };
+                var btnOk = new Button { Text = "Create", Left = 300, Width = 80, Top = 240, DialogResult = DialogResult.OK };
+                var btnCancel = new Button { Text = "Cancel", Left = 392, Width = 80, Top = 240, DialogResult = DialogResult.Cancel };
 
-                dlg.Controls.Add(new Label
+                dlg.Controls.AddRange(new Control[]
                 {
-                    Text = "Create New Quotation",
-                    Font = new Font("Segoe UI", 14f, FontStyle.Bold),
-                    ForeColor = ColorText,
-                    AutoSize = true,
-                    Location = new Point(24, 20)
+                    new Label { Text = "Project", Left = 20, Top = 6 },
+                    new Label { Text = "Quotation #", Left = 20, Top = 46 },
+                    new Label { Text = "Subtotal", Left = 20, Top = 86 },
+                    new Label { Text = "Discount", Left = 260, Top = 86 },
+                    cmbProject, lblNumberInfo, txtSubtotal, txtDiscount, txtNotes, btnOk, btnCancel
                 });
-
-                int y = 60;
-
-                AddField(dlg, "Project", ref y);
-                var cmbProject = new ComboBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Height = 30,
-                    DropDownStyle = ComboBoxStyle.DropDownList,
-                    Font = new Font("Segoe UI", 9.5f)
-                };
-                dlg.Controls.Add(cmbProject);
-                y += 46;
-
-                // Info bar
-                var infoBar = new Panel
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Height = 34,
-                    BackColor = Color.FromArgb(255, 245, 225)
-                };
-                dlg.Controls.Add(infoBar);
-                infoBar.Controls.Add(new Label
-                {
-                    Text = "💡  Quotation # will be auto-generated (e.g. QT-202609-0001)",
-                    Font = new Font("Segoe UI", 8.5f, FontStyle.Italic),
-                    ForeColor = Color.FromArgb(160, 95, 0),
-                    AutoSize = true,
-                    Location = new Point(10, 9)
-                });
-                y += 46;
-
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Subtotal (₱)",
-                    Left = 24,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Discount (₱)",
-                    Left = 284,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                y += 22;
-                var txtSubtotal = new TextBox { Left = 24, Top = y, Width = 240, Font = new Font("Segoe UI", 10f) };
-                var txtDiscount = new TextBox { Left = 284, Top = y, Width = 240, Font = new Font("Segoe UI", 10f), Text = "0" };
-                dlg.Controls.Add(txtSubtotal);
-                dlg.Controls.Add(txtDiscount);
-                y += 46;
-
-                AddField(dlg, "Notes", ref y);
-                var txtNotes = new TextBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Height = 60,
-                    Multiline = true,
-                    Font = new Font("Segoe UI", 9.5f)
-                };
-                dlg.Controls.Add(txtNotes);
-                y += 76;
-
-                var btnOk = MakePrimaryButton("Create", 110);
-                btnOk.Left = 414;
-                btnOk.Top = y;
-                btnOk.DialogResult = DialogResult.OK;
-                dlg.Controls.Add(btnOk);
-
-                var btnCancel = MakeSecondaryButton("Cancel", 90);
-                btnCancel.Left = 314;
-                btnCancel.Top = y;
-                btnCancel.DialogResult = DialogResult.Cancel;
-                dlg.Controls.Add(btnCancel);
-
-                dlg.ClientSize = new Size(548, y + 60);
 
                 try
                 {
@@ -1282,10 +1310,9 @@ public partial class Form1 : Form
                     cmbProject.Items.AddRange(projects.Select(p => new
                     {
                         Element = p,
-                        Text = $"{GetString(p, "ProjectName")}  (ID:{GetValueFromJson(p, "ProjectId") ?? GetValueFromJson(p, "Id")})"
+                        Text = (GetString(p, "ProjectName") ?? "Unnamed") + " (ID:" + (GetValueFromJson(p, "ProjectId") ?? GetValueFromJson(p, "Id")) + ")"
                     }).Cast<object>().ToArray());
                     cmbProject.DisplayMember = "Text";
-                    if (cmbProject.Items.Count > 0) cmbProject.SelectedIndex = 0;
                 }
                 catch { }
 
@@ -1319,54 +1346,23 @@ public partial class Form1 : Form
                 return;
             }
 
-            // ---------- FALLBACK (Customers, Leads) ----------
-            using var dlgGen = new Form
-            {
-                Text = $"New {title.TrimEnd('s')}",
-                Size = new Size(480, 400),
-                StartPosition = FormStartPosition.CenterParent,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                MaximizeBox = false,
-                MinimizeBox = false,
-                BackColor = ColorWhite
-            };
+            // Fallback create (Customers, Leads, etc.)
+            using var dlgGen = new Form { Text = $"New {title.TrimEnd('s')}", Size = new Size(420, 300), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog };
+            var txtFirst = new TextBox { Left = 20, Top = 24, Width = 360, PlaceholderText = "First name" };
+            var txtLast = new TextBox { Left = 20, Top = 64, Width = 360, PlaceholderText = "Last name" };
+            var txtEmail = new TextBox { Left = 20, Top = 104, Width = 360, PlaceholderText = "Email (optional)" };
+            var txtPhone = new TextBox { Left = 20, Top = 144, Width = 360, PlaceholderText = "Phone (optional)" };
+            var btnOkF = new Button { Text = "Create", Left = 200, Width = 80, Top = 200, DialogResult = DialogResult.OK };
+            var btnCancelF = new Button { Text = "Cancel", Left = 292, Width = 80, Top = 200, DialogResult = DialogResult.Cancel };
 
-            dlgGen.Controls.Add(new Label
+            dlgGen.Controls.AddRange(new Control[]
             {
-                Text = $"Create New {title.TrimEnd('s')}",
-                Font = new Font("Segoe UI", 14f, FontStyle.Bold),
-                ForeColor = ColorText,
-                AutoSize = true,
-                Location = new Point(24, 20)
+                new Label { Text = "First name", Left = 20, Top = 6 },
+                new Label { Text = "Last name", Left = 20, Top = 46 },
+                new Label { Text = "Email", Left = 20, Top = 86 },
+                new Label { Text = "Phone", Left = 20, Top = 126 },
+                txtFirst, txtLast, txtEmail, txtPhone, btnOkF, btnCancelF
             });
-
-            int gy = 60;
-
-            AddField(dlgGen, "First Name", ref gy);
-            var txtFirst = AddTextBox(dlgGen, gy); gy += 46;
-
-            AddField(dlgGen, "Last Name", ref gy);
-            var txtLast = AddTextBox(dlgGen, gy); gy += 46;
-
-            AddField(dlgGen, "Email", ref gy);
-            var txtEmail = AddTextBox(dlgGen, gy); gy += 46;
-
-            AddField(dlgGen, "Phone", ref gy);
-            var txtPhone = AddTextBox(dlgGen, gy); gy += 56;
-
-            var btnOkF = MakePrimaryButton("Create", 110);
-            btnOkF.Left = 334;
-            btnOkF.Top = gy;
-            btnOkF.DialogResult = DialogResult.OK;
-            dlgGen.Controls.Add(btnOkF);
-
-            var btnCancelF = MakeSecondaryButton("Cancel", 90);
-            btnCancelF.Left = 234;
-            btnCancelF.Top = gy;
-            btnCancelF.DialogResult = DialogResult.Cancel;
-            dlgGen.Controls.Add(btnCancelF);
-
-            dlgGen.ClientSize = new Size(468, gy + 60);
 
             if (dlgGen.ShowDialog(this) == DialogResult.OK)
             {
@@ -1383,16 +1379,9 @@ public partial class Form1 : Form
             }
         };
 
-        // =========================================================
-        // EDIT BUTTON
-        // =========================================================
         editButton.Click += async (_, _) =>
         {
-            if (grid.SelectedRows.Count == 0)
-            {
-                MessageBox.Show("Select a record to edit.", "Edit");
-                return;
-            }
+            if (grid.SelectedRows.Count == 0) { MessageBox.Show("Select a record to edit.", "Edit"); return; }
             var visibleIdx = grid.SelectedRows[0].Index;
             if (visibleIdx < 0 || visibleIdx >= _renderRecords.Count) return;
 
@@ -1417,543 +1406,26 @@ public partial class Form1 : Form
                 return;
             }
 
-            // =====================================================
-            // EDIT QUOTATION
-            // =====================================================
-            if (string.Equals(endpoint, "quotations", StringComparison.OrdinalIgnoreCase))
+            // Generic edit (works for most entities)
+            using var dlg = new Form { Text = "Edit", Size = new Size(420, 360), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog };
+            var txtFirst = new TextBox { Left = 20, Top = 24, Width = 360, Text = GetString(elem, "FirstName", "firstName") ?? "" };
+            var txtLast = new TextBox { Left = 20, Top = 64, Width = 360, Text = GetString(elem, "LastName", "lastName") ?? "" };
+            var txtEmail = new TextBox { Left = 20, Top = 104, Width = 360, Text = GetString(elem, "Email", "email") ?? "" };
+            var txtPhone = new TextBox { Left = 20, Top = 144, Width = 360, Text = GetString(elem, "Phone", "phone") ?? "" };
+            var chkActive = new CheckBox { Left = 20, Top = 184, Width = 200, Checked = (GetValueFromJson(elem, "IsActive") as bool?) ?? true, Text = "Active" };
+            var btnOk = new Button { Text = "Save", Left = 200, Width = 80, Top = 240, DialogResult = DialogResult.OK };
+            var btnCancel = new Button { Text = "Cancel", Left = 292, Width = 80, Top = 240, DialogResult = DialogResult.Cancel };
+
+            dlg.Controls.AddRange(new Control[]
             {
-                using var dlg = new Form
-                {
-                    Text = "Edit Quotation",
-                    Size = new Size(580, 500),
-                    StartPosition = FormStartPosition.CenterParent,
-                    FormBorderStyle = FormBorderStyle.FixedDialog,
-                    MaximizeBox = false,
-                    MinimizeBox = false,
-                    BackColor = ColorWhite
-                };
-
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Edit Quotation",
-                    Font = new Font("Segoe UI", 14f, FontStyle.Bold),
-                    ForeColor = ColorText,
-                    AutoSize = true,
-                    Location = new Point(24, 20)
-                });
-
-                int y = 60;
-
-                // Quotation number (read-only)
-                AddField(dlg, "Quotation # (auto-generated — cannot be changed)", ref y);
-                var txtNumber = new TextBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Font = new Font("Segoe UI", 9.5f),
-                    Text = GetString(elem, "QuotationNumber", "quotationNumber") ?? "",
-                    ReadOnly = true,
-                    BackColor = Color.FromArgb(245, 246, 248),
-                    ForeColor = Color.FromArgb(110, 118, 132)
-                };
-                dlg.Controls.Add(txtNumber);
-                y += 46;
-
-                // Project
-                AddField(dlg, "Project", ref y);
-                var cmbProject = new ComboBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Height = 30,
-                    DropDownStyle = ComboBoxStyle.DropDownList,
-                    Font = new Font("Segoe UI", 9.5f)
-                };
-                dlg.Controls.Add(cmbProject);
-                y += 46;
-
-                // Subtotal + Discount (side by side)
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Subtotal (₱)",
-                    Left = 24,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Discount (₱)",
-                    Left = 284,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                y += 22;
-                var txtSubtotal = new TextBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 240,
-                    Font = new Font("Segoe UI", 10f),
-                    Text = GetString(elem, "Subtotal", "subtotal") ?? "0"
-                };
-                var txtDiscount = new TextBox
-                {
-                    Left = 284,
-                    Top = y,
-                    Width = 240,
-                    Font = new Font("Segoe UI", 10f),
-                    Text = GetString(elem, "Discount", "discount") ?? "0"
-                };
-                dlg.Controls.Add(txtSubtotal);
-                dlg.Controls.Add(txtDiscount);
-                y += 46;
-
-                // Status + Valid Until (side by side)
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Status",
-                    Left = 24,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Valid Until",
-                    Left = 284,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                y += 22;
-                var cmbStatus = new ComboBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 240,
-                    Height = 30,
-                    DropDownStyle = ComboBoxStyle.DropDownList,
-                    Font = new Font("Segoe UI", 9.5f)
-                };
-                cmbStatus.Items.AddRange(new[] { "Draft", "Issued", "Accepted", "Rejected", "Expired" });
-                var dtValid = new DateTimePicker
-                {
-                    Left = 284,
-                    Top = y,
-                    Width = 240,
-                    Format = DateTimePickerFormat.Short,
-                    Font = new Font("Segoe UI", 9.5f)
-                };
-                dlg.Controls.Add(cmbStatus);
-                dlg.Controls.Add(dtValid);
-                y += 46;
-
-                // Notes
-                AddField(dlg, "Notes", ref y);
-                var txtNotes = new TextBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Height = 70,
-                    Multiline = true,
-                    Font = new Font("Segoe UI", 9.5f),
-                    Text = GetString(elem, "Notes", "notes") ?? ""
-                };
-                dlg.Controls.Add(txtNotes);
-                y += 86;
-
-                // Buttons
-                var btnOk = MakePrimaryButton("Save", 110);
-                btnOk.Left = 414;
-                btnOk.Top = y;
-                btnOk.DialogResult = DialogResult.OK;
-                dlg.Controls.Add(btnOk);
-
-                var btnCancel = MakeSecondaryButton("Cancel", 90);
-                btnCancel.Left = 314;
-                btnCancel.Top = y;
-                btnCancel.DialogResult = DialogResult.Cancel;
-                dlg.Controls.Add(btnCancel);
-
-                dlg.ClientSize = new Size(548, y + 60);
-
-                // Parse valid until
-                if (DateTime.TryParse(GetString(elem, "ValidUntil", "validUntil"), out var vd))
-                    dtValid.Value = vd;
-
-                // Load projects and select current
-                try
-                {
-                    var projects = await GetArrayAsync("projects");
-                    var items = projects.Select(p => new
-                    {
-                        Element = p,
-                        Text = $"{GetString(p, "ProjectName")}  (ID:{GetValueFromJson(p, "ProjectId") ?? GetValueFromJson(p, "Id")})"
-                    }).Cast<object>().ToArray();
-                    cmbProject.Items.AddRange(items);
-                    cmbProject.DisplayMember = "Text";
-
-                    var curProjectId = GetValueFromJson(elem, "ProjectId") ?? GetValueFromJson(elem, "projectId");
-                    if (curProjectId != null)
-                    {
-                        for (int i = 0; i < items.Length; i++)
-                        {
-                            var elemProp = items[i].GetType().GetProperty("Element");
-                            if (elemProp != null)
-                            {
-                                var je = (JsonElement)elemProp.GetValue(items[i])!;
-                                var val = GetValueFromJson(je, "ProjectId") ?? GetValueFromJson(je, "Id");
-                                if (val != null && val.ToString() == curProjectId.ToString()) { cmbProject.SelectedIndex = i; break; }
-                            }
-                        }
-                    }
-                    if (cmbProject.SelectedIndex < 0 && cmbProject.Items.Count > 0) cmbProject.SelectedIndex = 0;
-                }
-                catch { }
-
-                var curStatus = GetString(elem, "Status", "status");
-                if (!string.IsNullOrWhiteSpace(curStatus) && cmbStatus.Items.Contains(curStatus))
-                    cmbStatus.SelectedItem = curStatus;
-
-                if (dlg.ShowDialog(this) == DialogResult.OK)
-                {
-                    object? projectIdValue = null;
-                    if (cmbProject.SelectedItem != null)
-                    {
-                        var elemProp = cmbProject.SelectedItem.GetType().GetProperty("Element");
-                        if (elemProp != null)
-                        {
-                            var je = (JsonElement)elemProp.GetValue(cmbProject.SelectedItem)!;
-                            projectIdValue = GetValueFromJson(je, "ProjectId") ?? GetValueFromJson(je, "Id");
-                        }
-                    }
-
-                    var subtotal = 0m; decimal.TryParse(txtSubtotal.Text, out subtotal);
-                    var discount = 0m; decimal.TryParse(txtDiscount.Text, out discount);
-
-                    var body = new Dictionary<string, object?>
-                    {
-                        ["projectId"] = projectIdValue,
-                        ["subtotal"] = subtotal,
-                        ["discount"] = discount,
-                        ["status"] = cmbStatus.SelectedItem?.ToString() ?? curStatus,
-                        ["validUntil"] = dtValid.Value.ToString("o"),
-                        ["notes"] = txtNotes.Text.Trim()
-                    };
-
-                    await PutObjectAsync($"{endpoint}/{id}", body);
-                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
-                }
-                return;
-            }
-
-            // =====================================================
-            // EDIT PROJECT
-            // =====================================================
-            if (string.Equals(endpoint, "projects", StringComparison.OrdinalIgnoreCase))
-            {
-                using var dlg = new Form
-                {
-                    Text = "Edit Project",
-                    Size = new Size(580, 580),
-                    StartPosition = FormStartPosition.CenterParent,
-                    FormBorderStyle = FormBorderStyle.FixedDialog,
-                    MaximizeBox = false,
-                    MinimizeBox = false,
-                    BackColor = ColorWhite
-                };
-
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Edit Project",
-                    Font = new Font("Segoe UI", 14f, FontStyle.Bold),
-                    ForeColor = ColorText,
-                    AutoSize = true,
-                    Location = new Point(24, 20)
-                });
-
-                int y = 60;
-
-                AddField(dlg, "Project Code", ref y);
-                var txtCode = AddTextBox(dlg, y);
-                txtCode.Text = GetString(elem, "ProjectCode", "projectCode") ?? "";
-                y += 46;
-
-                AddField(dlg, "Project Name", ref y);
-                var txtName = AddTextBox(dlg, y);
-                txtName.Text = GetString(elem, "ProjectName", "projectName") ?? "";
-                y += 46;
-
-                AddField(dlg, "Customer", ref y);
-                var cmbCustomer = new ComboBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Height = 30,
-                    DropDownStyle = ComboBoxStyle.DropDownList,
-                    Font = new Font("Segoe UI", 9.5f)
-                };
-                dlg.Controls.Add(cmbCustomer);
-                y += 46;
-
-                // Type + Location (side by side)
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Type",
-                    Left = 24,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Location",
-                    Left = 284,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                y += 22;
-                var txtType = new TextBox { Left = 24, Top = y, Width = 240, Font = new Font("Segoe UI", 9.5f) };
-                txtType.Text = GetString(elem, "ProjectType", "projectType") ?? "";
-                var txtLocation = new TextBox { Left = 284, Top = y, Width = 240, Font = new Font("Segoe UI", 9.5f) };
-                txtLocation.Text = GetString(elem, "Location", "location") ?? "";
-                dlg.Controls.Add(txtType);
-                dlg.Controls.Add(txtLocation);
-                y += 46;
-
-                // Start + End (side by side)
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Start Date",
-                    Left = 24,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                dlg.Controls.Add(new Label
-                {
-                    Text = "Target End Date",
-                    Left = 284,
-                    Top = y,
-                    Width = 240,
-                    Height = 20,
-                    Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(70, 78, 92)
-                });
-                y += 22;
-                var dtStart = new DateTimePicker { Left = 24, Top = y, Width = 240, Format = DateTimePickerFormat.Short, Font = new Font("Segoe UI", 9.5f) };
-                var dtEnd = new DateTimePicker { Left = 284, Top = y, Width = 240, Format = DateTimePickerFormat.Short, Font = new Font("Segoe UI", 9.5f) };
-                dlg.Controls.Add(dtStart);
-                dlg.Controls.Add(dtEnd);
-                y += 46;
-
-                // Status
-                AddField(dlg, "Status", ref y);
-                var cmbStatus = new ComboBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 500,
-                    Height = 30,
-                    DropDownStyle = ComboBoxStyle.DropDownList,
-                    Font = new Font("Segoe UI", 9.5f)
-                };
-                cmbStatus.Items.AddRange(new[] { "Planning", "In Progress", "Completed", "On Hold", "Cancelled" });
-                dlg.Controls.Add(cmbStatus);
-                y += 46;
-
-                // Active checkbox
-                var chkActive = new CheckBox
-                {
-                    Left = 24,
-                    Top = y,
-                    Width = 300,
-                    Height = 24,
-                    Font = new Font("Segoe UI", 9.5f),
-                    Text = "Active Project",
-                    Checked = (GetValueFromJson(elem, "IsActive") as bool?) ?? true
-                };
-                dlg.Controls.Add(chkActive);
-                y += 36;
-
-                // Buttons
-                var btnOk = MakePrimaryButton("Save", 110);
-                btnOk.Left = 414;
-                btnOk.Top = y;
-                btnOk.DialogResult = DialogResult.OK;
-                dlg.Controls.Add(btnOk);
-
-                var btnCancel = MakeSecondaryButton("Cancel", 90);
-                btnCancel.Left = 314;
-                btnCancel.Top = y;
-                btnCancel.DialogResult = DialogResult.Cancel;
-                dlg.Controls.Add(btnCancel);
-
-                dlg.ClientSize = new Size(548, y + 60);
-
-                // Parse dates
-                if (DateTime.TryParse(GetString(elem, "StartDate", "startDate"), out var sd)) dtStart.Value = sd;
-                if (DateTime.TryParse(GetString(elem, "TargetEndDate", "targetEndDate", "endDate"), out var ed)) dtEnd.Value = ed;
-
-                // Load customers
-                try
-                {
-                    var customers = await GetArrayAsync("customers");
-                    var items = customers.Select(c => new
-                    {
-                        Element = c,
-                        Text = $"{GetString(c, "FirstName")} {GetString(c, "LastName")}  (ID:{GetValueFromJson(c, "CustomerId") ?? GetValueFromJson(c, "Id")})"
-                    }).Cast<object>().ToArray();
-                    cmbCustomer.Items.AddRange(items);
-                    cmbCustomer.DisplayMember = "Text";
-
-                    var curCustomerId = GetValueFromJson(elem, "CustomerId") ?? GetValueFromJson(elem, "customerId");
-                    if (curCustomerId != null)
-                    {
-                        for (int i = 0; i < items.Length; i++)
-                        {
-                            var elemProp = items[i].GetType().GetProperty("Element");
-                            if (elemProp != null)
-                            {
-                                var je = (JsonElement)elemProp.GetValue(items[i])!;
-                                var val = GetValueFromJson(je, "CustomerId") ?? GetValueFromJson(je, "Id");
-                                if (val != null && val.ToString() == curCustomerId.ToString()) { cmbCustomer.SelectedIndex = i; break; }
-                            }
-                        }
-                    }
-                }
-                catch { }
-
-                var curStatus = GetString(elem, "Status", "status");
-                if (!string.IsNullOrWhiteSpace(curStatus) && cmbStatus.Items.Contains(curStatus))
-                    cmbStatus.SelectedItem = curStatus;
-
-                if (dlg.ShowDialog(this) == DialogResult.OK)
-                {
-                    object? customerIdValue = null;
-                    if (cmbCustomer.SelectedItem != null)
-                    {
-                        var elemProp = cmbCustomer.SelectedItem.GetType().GetProperty("Element");
-                        if (elemProp != null)
-                        {
-                            var je = (JsonElement)elemProp.GetValue(cmbCustomer.SelectedItem)!;
-                            customerIdValue = GetValueFromJson(je, "CustomerId") ?? GetValueFromJson(je, "Id");
-                        }
-                    }
-
-                    var body = new Dictionary<string, object?>
-                    {
-                        ["projectCode"] = txtCode.Text.Trim(),
-                        ["projectName"] = txtName.Text.Trim(),
-                        ["customerId"] = customerIdValue,
-                        ["projectType"] = txtType.Text.Trim(),
-                        ["location"] = txtLocation.Text.Trim(),
-                        ["startDate"] = dtStart.Value.ToString("o"),
-                        ["targetEndDate"] = dtEnd.Value.ToString("o"),
-                        ["status"] = cmbStatus.SelectedItem?.ToString() ?? curStatus,
-                        ["isActive"] = chkActive.Checked
-                    };
-
-                    await PutObjectAsync($"{endpoint}/{id}", body);
-                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
-                }
-                return;
-            }
-
-            // =====================================================
-            // GENERIC EDIT (Customers, Leads, etc.)
-            // =====================================================
-            using var dlgGen = new Form
-            {
-                Text = $"Edit {title.TrimEnd('s')}",
-                Size = new Size(480, 400),
-                StartPosition = FormStartPosition.CenterParent,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                MaximizeBox = false,
-                MinimizeBox = false,
-                BackColor = ColorWhite
-            };
-
-            dlgGen.Controls.Add(new Label
-            {
-                Text = $"Edit {title.TrimEnd('s')}",
-                Font = new Font("Segoe UI", 14f, FontStyle.Bold),
-                ForeColor = ColorText,
-                AutoSize = true,
-                Location = new Point(24, 20)
+                new Label { Text = "First name", Left = 20, Top = 6 },
+                new Label { Text = "Last name", Left = 20, Top = 46 },
+                new Label { Text = "Email", Left = 20, Top = 86 },
+                new Label { Text = "Phone", Left = 20, Top = 126 },
+                txtFirst, txtLast, txtEmail, txtPhone, chkActive, btnOk, btnCancel
             });
 
-            int gy = 60;
-
-            AddField(dlgGen, "First Name", ref gy);
-            var txtFirst = AddTextBox(dlgGen, gy);
-            txtFirst.Text = GetString(elem, "FirstName", "firstName") ?? "";
-            gy += 46;
-
-            AddField(dlgGen, "Last Name", ref gy);
-            var txtLast = AddTextBox(dlgGen, gy);
-            txtLast.Text = GetString(elem, "LastName", "lastName") ?? "";
-            gy += 46;
-
-            AddField(dlgGen, "Email", ref gy);
-            var txtEmail = AddTextBox(dlgGen, gy);
-            txtEmail.Text = GetString(elem, "Email", "email") ?? "";
-            gy += 46;
-
-            AddField(dlgGen, "Phone", ref gy);
-            var txtPhone = AddTextBox(dlgGen, gy);
-            txtPhone.Text = GetString(elem, "Phone", "phone") ?? "";
-            gy += 46;
-
-            var chkActiveGen = new CheckBox
-            {
-                Left = 24,
-                Top = gy,
-                Width = 300,
-                Height = 24,
-                Font = new Font("Segoe UI", 9.5f),
-                Text = "Active",
-                Checked = (GetValueFromJson(elem, "IsActive") as bool?) ?? true
-            };
-            dlgGen.Controls.Add(chkActiveGen);
-            gy += 36;
-
-            var btnOkGen = MakePrimaryButton("Save", 110);
-            btnOkGen.Left = 334;
-            btnOkGen.Top = gy;
-            btnOkGen.DialogResult = DialogResult.OK;
-            dlgGen.Controls.Add(btnOkGen);
-
-            var btnCancelGen = MakeSecondaryButton("Cancel", 90);
-            btnCancelGen.Left = 234;
-            btnCancelGen.Top = gy;
-            btnCancelGen.DialogResult = DialogResult.Cancel;
-            dlgGen.Controls.Add(btnCancelGen);
-
-            dlgGen.ClientSize = new Size(468, gy + 60);
-
-            if (dlgGen.ShowDialog(this) == DialogResult.OK)
+            if (dlg.ShowDialog(this) == DialogResult.OK)
             {
                 var body = new Dictionary<string, object?>
                 {
@@ -1961,7 +1433,7 @@ public partial class Form1 : Form
                     ["lastName"] = txtLast.Text.Trim(),
                     ["email"] = string.IsNullOrWhiteSpace(txtEmail.Text) ? null : txtEmail.Text.Trim(),
                     ["phone"] = string.IsNullOrWhiteSpace(txtPhone.Text) ? null : txtPhone.Text.Trim(),
-                    ["isActive"] = chkActiveGen.Checked
+                    ["isActive"] = chkActive.Checked
                 };
 
                 await PutObjectAsync($"{endpoint}/{id}", body);
@@ -1969,16 +1441,9 @@ public partial class Form1 : Form
             }
         };
 
-        // =========================================================
-        // DELETE BUTTON
-        // =========================================================
         deleteButton.Click += async (_, _) =>
         {
-            if (grid.SelectedRows.Count == 0)
-            {
-                MessageBox.Show("Select a record to delete.", "Delete");
-                return;
-            }
+            if (grid.SelectedRows.Count == 0) { MessageBox.Show("Select a record to delete.", "Delete"); return; }
             var visibleIdx = grid.SelectedRows[0].Index;
             if (visibleIdx < 0 || visibleIdx >= _renderRecords.Count) return;
 
@@ -1996,99 +1461,25 @@ public partial class Form1 : Form
             if (idObj == null) { MessageBox.Show("Cannot determine record id.", "Delete"); return; }
             var id = idObj.ToString();
 
-            if (MessageBox.Show("Are you sure you want to delete this record?", "Confirm", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            if (MessageBox.Show("Are you sure you want to delete this record?", "Confirm", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
 
-            try
-            {
-                await DeleteAsync($"{endpoint}/{id}");
-                await LoadEntityPageAsync(title, endpoint, preferredColumns);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Delete failed:\n\n" + ex.Message, "Error");
-            }
+            await DeleteAsync($"{endpoint}/{id}");
+            await LoadEntityPageAsync(title, endpoint, preferredColumns);
         };
 
-        // =========================================================
-        // ATTACH GRID + WORKFLOW BUTTONS
-        // =========================================================
         card.Controls.Add(grid);
         grid.BringToFront();
 
         List<JsonElement> GetRecords() => currentRecords;
         AddWorkflowButtons(header, endpoint, grid, GetRecords);
 
-        // =========================================================
-        // INITIAL RENDER
-        // =========================================================
         RenderPage();
     }
 
     // =========================================================
-    // FORM HELPERS — for consistent UI styling
+    // WORKFLOW BUTTONS
     // =========================================================
-    private void AddField(Form parent, string label, ref int y)
-    {
-        parent.Controls.Add(new Label
-        {
-            Text = label,
-            Left = 24,
-            Top = y,
-            Width = 500,
-            Height = 20,
-            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-            ForeColor = Color.FromArgb(70, 78, 92)
-        });
-        y += 22;
-    }
-
-    private TextBox AddTextBox(Form parent, int y)
-    {
-        var txt = new TextBox
-        {
-            Left = 24,
-            Top = y,
-            Width = 500,
-            Height = 30,
-            Font = new Font("Segoe UI", 9.5f),
-            BorderStyle = BorderStyle.FixedSingle
-        };
-        parent.Controls.Add(txt);
-        return txt;
-    }
-
-    private Button MakePrimaryButton(string text, int width) => new Button
-    {
-        Text = text,
-        Width = width,
-        Height = 38,
-        FlatStyle = FlatStyle.Flat,
-        BackColor = Color.FromArgb(255, 168, 0),
-        ForeColor = Color.White,
-        Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-        Cursor = Cursors.Hand
-    };
-
-    private Button MakeSecondaryButton(string text, int width) => new Button
-    {
-        Text = text,
-        Width = width,
-        Height = 38,
-        FlatStyle = FlatStyle.Flat,
-        BackColor = Color.White,
-        ForeColor = Color.FromArgb(28, 32, 40),
-        Font = new Font("Segoe UI", 9.5f),
-        Cursor = Cursors.Hand
-    };
-
-    // =========================================================
-    // WORKFLOW BUTTONS — added per page
-    // =========================================================
-    private void AddWorkflowButtons(
-        Panel header,
-        string endpoint,
-        DataGridView grid,
-        Func<List<JsonElement>> getCurrentRecords)
+    private void AddWorkflowButtons(Panel header, string endpoint, DataGridView grid, Func<List<JsonElement>> getCurrentRecords)
     {
         int x = 500;
 
@@ -2102,12 +1493,7 @@ public partial class Form1 : Form
 
             btnConvert.Click += async (_, _) =>
             {
-                if (grid.SelectedRows.Count == 0)
-                {
-                    MessageBox.Show("Select a lead to convert.", "Convert");
-                    return;
-                }
-
+                if (grid.SelectedRows.Count == 0) { MessageBox.Show("Select a lead to convert.", "Convert"); return; }
                 var records = getCurrentRecords();
                 var idx = grid.SelectedRows[0].Index;
                 if (idx < 0 || idx >= records.Count) return;
@@ -2119,7 +1505,7 @@ public partial class Form1 : Form
                 var name = $"{GetString(lead, "FirstName")} {GetString(lead, "LastName")}".Trim();
 
                 using var dlg = new ConvertLeadDialog(name);
-                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
 
                 try
                 {
@@ -2191,12 +1577,7 @@ public partial class Form1 : Form
             header.Controls.Add(btnResolve);
             btnResolve.Click += async (_, _) =>
             {
-                if (grid.SelectedRows.Count == 0)
-                {
-                    MessageBox.Show("Select an issue.", "Resolve");
-                    return;
-                }
-
+                if (grid.SelectedRows.Count == 0) { MessageBox.Show("Select an issue.", "Resolve"); return; }
                 var records = getCurrentRecords();
                 var idx = grid.SelectedRows[0].Index;
                 if (idx < 0 || idx >= records.Count) return;
@@ -2207,17 +1588,14 @@ public partial class Form1 : Form
                 if (issueId == null) return;
 
                 using var dlg = new ResolveIssueDialog(title);
-                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
 
                 try
                 {
                     var url = $"{ApiUrl}/tenant/{Session.CompanyId}/issues/{issueId}/resolve";
                     using var req = new HttpRequestMessage(HttpMethod.Post, url);
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
-                    req.Content = new StringContent(
-                        JsonSerializer.Serialize(dlg.ToPayload()),
-                        System.Text.Encoding.UTF8,
-                        "application/json");
+                    req.Content = new StringContent(JsonSerializer.Serialize(dlg.ToPayload()), System.Text.Encoding.UTF8, "application/json");
 
                     using var res = await _httpClient.SendAsync(req);
                     var json = await res.Content.ReadAsStringAsync();
@@ -2247,10 +1625,8 @@ public partial class Form1 : Form
         }
     }
 
-
-
     // =========================================================
-    // WORKFLOW — HTTP + Handlers
+    // WORKFLOW HELPERS
     // =========================================================
     private async Task PostWorkflowAsync(string workflowPath, object? payload)
     {
@@ -2263,10 +1639,7 @@ public partial class Form1 : Form
 
         if (payload != null)
         {
-            req.Content = new StringContent(
-                JsonSerializer.Serialize(payload),
-                System.Text.Encoding.UTF8,
-                "application/json");
+            req.Content = new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
         }
 
         using var res = await _httpClient.SendAsync(req);
@@ -2286,18 +1659,9 @@ public partial class Form1 : Form
         }
     }
 
-    private async Task RunQuotationAction(
-        DataGridView grid,
-        Func<List<JsonElement>> getCurrentRecords,
-        string actionLabel,
-        string endpointAction)
+    private async Task RunQuotationAction(DataGridView grid, Func<List<JsonElement>> getCurrentRecords, string actionLabel, string endpointAction)
     {
-        if (grid.SelectedRows.Count == 0)
-        {
-            MessageBox.Show($"Select a quotation to {actionLabel.ToLower()}.", actionLabel);
-            return;
-        }
-
+        if (grid.SelectedRows.Count == 0) { MessageBox.Show($"Select a quotation to {actionLabel.ToLower()}.", actionLabel); return; }
         var records = getCurrentRecords();
         var idx = grid.SelectedRows[0].Index;
         if (idx < 0 || idx >= records.Count) return;
@@ -2322,7 +1686,6 @@ public partial class Form1 : Form
     private async Task ShowPaymentDialog(DataGridView grid, Func<List<JsonElement>> getCurrentRecords)
     {
         if (grid.SelectedRows.Count == 0) return;
-
         var records = getCurrentRecords();
         var idx = grid.SelectedRows[0].Index;
         if (idx < 0 || idx >= records.Count) return;
@@ -2368,33 +1731,11 @@ public partial class Form1 : Form
         var txtRef = new TextBox { Left = 20, Top = 184, Width = 400, Font = new Font("Segoe UI", 9.5f) };
         dlg.Controls.Add(txtRef);
 
-        var btnOk = new Button
-        {
-            Text = "Record",
-            Left = 240,
-            Top = 232,
-            Width = 90,
-            Height = 34,
-            BackColor = Color.FromArgb(255, 168, 0),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-            DialogResult = DialogResult.OK
-        };
+        var btnOk = new Button { Text = "Record", Left = 240, Top = 232, Width = 90, Height = 34, BackColor = Color.FromArgb(255, 168, 0), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9f, FontStyle.Bold), DialogResult = DialogResult.OK };
         btnOk.FlatAppearance.BorderSize = 0;
         dlg.Controls.Add(btnOk);
 
-        var btnCancel = new Button
-        {
-            Text = "Cancel",
-            Left = 338,
-            Top = 232,
-            Width = 82,
-            Height = 34,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9f),
-            DialogResult = DialogResult.Cancel
-        };
+        var btnCancel = new Button { Text = "Cancel", Left = 338, Top = 232, Width = 82, Height = 34, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9f), DialogResult = DialogResult.Cancel };
         btnCancel.FlatAppearance.BorderColor = Color.FromArgb(226, 230, 236);
         dlg.Controls.Add(btnCancel);
 
@@ -2429,7 +1770,6 @@ public partial class Form1 : Form
     private async Task ShowAssignDesignerDialog(DataGridView grid, Func<List<JsonElement>> getCurrentRecords)
     {
         if (grid.SelectedRows.Count == 0) return;
-
         var records = getCurrentRecords();
         var idx = grid.SelectedRows[0].Index;
         if (idx < 0 || idx >= records.Count) return;
@@ -2457,7 +1797,6 @@ public partial class Form1 : Form
     private async Task ShowUpdateProgressDialog(DataGridView grid, Func<List<JsonElement>> getCurrentRecords)
     {
         if (grid.SelectedRows.Count == 0) return;
-
         var records = getCurrentRecords();
         var idx = grid.SelectedRows[0].Index;
         if (idx < 0 || idx >= records.Count) return;
@@ -2493,8 +1832,152 @@ public partial class Form1 : Form
     }
 
     // =========================================================
-    // REPORTS
+    // FEEDBACK + ISSUES
     // =========================================================
+    private async Task ShowFeedbackDialog(DataGridView grid, Func<List<JsonElement>> getCurrentRecords)
+    {
+        if (grid.SelectedRows.Count == 0) { MessageBox.Show("Select a project first.", "Feedback"); return; }
+        var records = getCurrentRecords();
+        var idx = grid.SelectedRows[0].Index;
+        if (idx < 0 || idx >= records.Count) return;
+
+        var proj = records[idx];
+        var projId = GetValueFromJson(proj, "ProjectId")?.ToString();
+        var projName = GetString(proj, "ProjectName") ?? "Project";
+        var stage = GetString(proj, "DesignStage") ?? "";
+        if (projId == null) return;
+
+        if (!string.Equals(stage, "Completed", StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show("Feedback can only be submitted for Completed projects.\n\n" + $"Current stage: {stage}", "Feedback");
+            return;
+        }
+
+        using var dlg = new FeedbackDialog(projName);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var url = $"{ApiUrl}/tenant/{Session.CompanyId}/projects/{projId}/feedback";
+            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+            req.Content = new StringContent(JsonSerializer.Serialize(dlg.ToPayload(int.Parse(projId))), System.Text.Encoding.UTF8, "application/json");
+
+            using var res = await _httpClient.SendAsync(req);
+            var json = await res.Content.ReadAsStringAsync();
+
+            if (!res.IsSuccessStatusCode)
+            {
+                string msg = json;
+                try { using var doc = JsonDocument.Parse(json); if (doc.RootElement.TryGetProperty("message", out var m)) msg = m.GetString() ?? json; }
+                catch { }
+                throw new HttpRequestException(msg);
+            }
+
+            MessageBox.Show("Thank you for your feedback!", "Success");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Feedback failed:\n\n" + ex.Message, "Error");
+        }
+    }
+
+    private async Task ShowNewIssueDialog(DataGridView grid, Func<List<JsonElement>> getCurrentRecords)
+    {
+        if (grid.SelectedRows.Count == 0) { MessageBox.Show("Select a project first.", "Report Issue"); return; }
+        var records = getCurrentRecords();
+        var idx = grid.SelectedRows[0].Index;
+        if (idx < 0 || idx >= records.Count) return;
+
+        var proj = records[idx];
+        var projId = GetValueFromJson(proj, "ProjectId")?.ToString();
+        var projName = GetString(proj, "ProjectName") ?? "Project";
+        if (projId == null) return;
+
+        using var dlg = new NewIssueDialog(projName);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var url = $"{ApiUrl}/tenant/{Session.CompanyId}/projects/{projId}/issues";
+            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+            req.Content = new StringContent(JsonSerializer.Serialize(dlg.ToPayload(int.Parse(projId))), System.Text.Encoding.UTF8, "application/json");
+
+            using var res = await _httpClient.SendAsync(req);
+            var json = await res.Content.ReadAsStringAsync();
+
+            if (!res.IsSuccessStatusCode)
+            {
+                string msg = json;
+                try { using var doc = JsonDocument.Parse(json); if (doc.RootElement.TryGetProperty("message", out var m)) msg = m.GetString() ?? json; }
+                catch { }
+                throw new HttpRequestException(msg);
+            }
+
+            MessageBox.Show("Issue reported successfully.", "Success");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Report failed:\n\n" + ex.Message, "Error");
+        }
+    }
+
+    // =========================================================
+    // PAGE BUILDERS
+    // =========================================================
+    public void NavigateTo(string page) => SelectNavigation(page);
+
+    private void BuildDesignersPage()
+    {
+        contentPanel.Controls.Clear();
+        contentPanel.Padding = new Padding(32, 20, 32, 32);
+
+        var page = new DesignersPage(ApiUrl, _httpClient);
+        contentPanel.Controls.Add(page);
+        _ = page.LoadAsync();
+    }
+
+    private void BuildUsersPage()
+    {
+        contentPanel.Controls.Clear();
+        contentPanel.Padding = new Padding(32, 20, 32, 32);
+
+        var page = new UsersPage(ApiUrl, _httpClient);
+        contentPanel.Controls.Add(page);
+        _ = page.LoadAsync();
+    }
+
+    private void BuildBiDashboard()
+    {
+        contentPanel.Controls.Clear();
+        contentPanel.Padding = new Padding(32, 20, 32, 32);
+
+        var page = new BiDashboardPage(ApiUrl, _httpClient);
+        contentPanel.Controls.Add(page);
+        _ = page.LoadAsync();
+    }
+
+    private void BuildRetentionPage()
+    {
+        contentPanel.Controls.Clear();
+        contentPanel.Padding = new Padding(32, 20, 32, 32);
+
+        var page = new RetentionPage(ApiUrl, _httpClient);
+        contentPanel.Controls.Add(page);
+        _ = page.LoadAsync();
+    }
+
+    private void BuildPromotionsPage()
+    {
+        contentPanel.Controls.Clear();
+        contentPanel.Padding = new Padding(32, 20, 32, 32);
+
+        var page = new PromotionsPage(ApiUrl, _httpClient);
+        contentPanel.Controls.Add(page);
+        _ = page.LoadAsync();
+    }
+
     private void BuildReportsPage()
     {
         contentPanel.Controls.Clear();
@@ -2503,6 +1986,66 @@ public partial class Form1 : Form
         var page = new ReportsPage(ApiUrl, _httpClient);
         contentPanel.Controls.Add(page);
         _ = page.LoadAllAsync();
+    }
+
+    // =========================================================
+    // ROLE-BASED VISIBILITY
+    // =========================================================
+    private bool CanSee(string pageName)
+    {
+        var roles = Session.Roles ?? new List<string>();
+
+        bool isSuperAdmin = roles.Contains("Super Admin");
+        bool isAdmin = roles.Contains("Admin");
+        bool isManager = roles.Contains("Manager");
+        bool isStaff = roles.Contains("Staff");
+
+        if (isSuperAdmin || isAdmin) return true;
+
+        if (isManager)
+        {
+            return pageName switch
+            {
+                "Overview" => true,
+                "Customers" => true,
+                "Leads" => true,
+                "Projects" => true,
+                "Quotations" => true,
+                "Activities" => true,
+                "Designers" => true,
+                "Users" => true,
+                "Issues" => true,
+                "Feedback" => true,
+                "Analytics" => true,
+                "Retention" => true,
+                "Promotions" => true,
+                "Reports" => true,
+                _ => false
+            };
+        }
+
+        // Staff
+        return pageName switch
+        {
+            "Overview" => true,
+            "Projects" => true,
+            "Activities" => true,
+            "Issues" => true,
+            "Feedback" => true,
+
+            "Customers" => isStaff,
+            "Leads" => isStaff,
+            "Quotations" => isStaff,
+            "Designers" => isStaff,
+            "Promotions" => isStaff,
+            "Reports" => isStaff,
+
+            "Analytics" => false,
+            "Retention" => false,
+            "Users" => false,
+
+            _ => false
+        };
     }
 
     // =========================================================
@@ -2578,125 +2121,6 @@ public partial class Form1 : Form
             }
         }
         return null;
-    }
-
-    private Panel CreateRecordChartCard(int customers, int leads, int projects, int quotations)
-    {
-        var card = CreateCard("Records Overview", "Current records by CRM module");
-        var chart = new Panel { Dock = DockStyle.Fill, BackColor = ColorWhite, Padding = new Padding(18, 72, 18, 20) };
-
-        int[] values = { customers, leads, projects, quotations };
-        string[] labels = { "Customers", "Leads", "Projects", "Quotations" };
-
-        chart.Paint += (s, e) =>
-        {
-            var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-
-            int left = 40, bottom = chart.Height - 44;
-            int chartHeight = Math.Max(80, chart.Height - 110);
-            int chartWidth = Math.Max(300, chart.Width - 70);
-            int max = Math.Max(1, values.Max());
-            int slot = Math.Max(60, chartWidth / values.Length);
-            int barWidth = Math.Min(46, slot - 22);
-
-            using var axisPen = new Pen(Color.FromArgb(228, 231, 236), 1);
-            g.DrawLine(axisPen, left, bottom, left + chartWidth, bottom);
-
-            for (int i = 0; i < values.Length; i++)
-            {
-                int x = left + i * slot + Math.Max(0, (slot - barWidth) / 2);
-                int h = values[i] == 0 ? 4 : (int)(values[i] / (double)max * (chartHeight - 18));
-                int y = bottom - h;
-
-                using var brush = new SolidBrush(ColorAccent);
-                g.FillRectangle(brush, x, y, barWidth, h);
-
-                TextRenderer.DrawText(g, values[i].ToString(), new Font("Segoe UI", 8.5f, FontStyle.Bold),
-                    new Rectangle(x - 10, y - 24, barWidth + 20, 20), ColorText,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-
-                TextRenderer.DrawText(g, labels[i], new Font("Segoe UI", 7.75f),
-                    new Rectangle(x - 28, bottom + 8, barWidth + 56, 22), ColorMuted,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            }
-        };
-
-        card.Controls.Add(chart);
-        chart.BringToFront();
-        return card;
-    }
-
-    private Panel CreateActivityStatusCard(List<JsonElement> activities)
-    {
-        var card = CreateCard("Activity Status", "Distribution of recorded activities");
-        var chart = new Panel { Dock = DockStyle.Fill, BackColor = ColorWhite, Padding = new Padding(12, 68, 12, 12) };
-
-        var groups = activities
-            .Select(a => GetString(a, "Status", "status") ?? "Recorded")
-            .GroupBy(x => x, StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(g => g.Count())
-            .Take(4)
-            .ToList();
-
-        chart.Paint += (s, e) =>
-        {
-            var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-
-            int total = Math.Max(1, activities.Count);
-            int cx = Math.Max(75, chart.Width / 2);
-            int cy = 118;
-            int diameter = Math.Min(130, Math.Max(95, chart.Width - 60));
-            var rect = new Rectangle(cx - diameter / 2, cy - diameter / 2, diameter, diameter);
-
-            Color[] colors = { ColorAccent, Color.FromArgb(105, 120, 235), Color.FromArgb(65, 170, 155), Color.FromArgb(235, 115, 85) };
-
-            if (activities.Count == 0)
-            {
-                using var pen = new Pen(Color.FromArgb(230, 233, 238), 20);
-                g.DrawEllipse(pen, rect);
-                TextRenderer.DrawText(g, "0", new Font("Segoe UI", 16, FontStyle.Bold),
-                    new Rectangle(cx - 30, cy - 22, 60, 44), ColorText,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            }
-            else
-            {
-                float start = -90;
-                for (int i = 0; i < groups.Count; i++)
-                {
-                    float sweep = groups[i].Count() / (float)total * 360f;
-                    using var pen = new Pen(colors[i % colors.Length], 20);
-                    g.DrawArc(pen, rect, start, sweep);
-                    start += sweep;
-                }
-
-                TextRenderer.DrawText(g, activities.Count.ToString("N0"), new Font("Segoe UI", 15, FontStyle.Bold),
-                    new Rectangle(cx - 35, cy - 24, 70, 28), ColorText,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-
-                TextRenderer.DrawText(g, "Activities", new Font("Segoe UI", 7.5f),
-                    new Rectangle(cx - 45, cy + 6, 90, 18), ColorMuted,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            }
-
-            int legendY = Math.Min(chart.Height - 28, 190);
-            using var legendFont = new Font("Segoe UI", 7.75f);
-
-            for (int i = 0; i < groups.Count; i++)
-            {
-                int y = legendY + i * 22;
-                using var brush = new SolidBrush(colors[i % 4]);
-                g.FillEllipse(brush, 14, y + 5, 8, 8);
-                TextRenderer.DrawText(g, $"{groups[i].Key}  {groups[i].Count()}", legendFont,
-                    new Rectangle(28, y, chart.Width - 40, 18), ColorMuted,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
-            }
-        };
-
-        card.Controls.Add(chart);
-        chart.BringToFront();
-        return card;
     }
 
     private Panel CreateCard(string title, string subtitle)
@@ -2819,8 +2243,7 @@ public partial class Form1 : Form
         var json = await response.Content.ReadAsStringAsync();
 
         if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException(
-                $"Endpoint: {url}\n\nStatus: {(int)response.StatusCode} {response.ReasonPhrase}\n\nResponse:\n{json}");
+            throw new HttpRequestException($"Endpoint: {url}\n\nStatus: {(int)response.StatusCode} {response.ReasonPhrase}\n\nResponse:\n{json}");
 
         using var document = JsonDocument.Parse(json);
 
@@ -2831,11 +2254,8 @@ public partial class Form1 : Form
         {
             foreach (var name in new[] { "data", "items", "results", endpoint })
             {
-                if (document.RootElement.TryGetProperty(name, out var prop) &&
-                    prop.ValueKind == JsonValueKind.Array)
-                {
+                if (document.RootElement.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Array)
                     return prop.EnumerateArray().Select(e => e.Clone()).ToList();
-                }
             }
         }
 
@@ -2859,8 +2279,7 @@ public partial class Form1 : Form
         var json = await response.Content.ReadAsStringAsync();
 
         if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException(
-                $"Endpoint: {url}\n\nStatus: {(int)response.StatusCode} {response.ReasonPhrase}\n\nResponse:\n{json}");
+            throw new HttpRequestException($"Endpoint: {url}\n\nStatus: {(int)response.StatusCode} {response.ReasonPhrase}\n\nResponse:\n{json}");
 
         using var document = JsonDocument.Parse(json);
 
@@ -3016,240 +2435,4 @@ public partial class Form1 : Form
             return date.ToString("MMM dd, yyyy");
         return value.Length > 16 ? value[..16] : value;
     }
-
-    // =========================================================
-    // FEEDBACK + ISSUES — UI Actions
-    // =========================================================
-    private async Task ShowFeedbackDialog(
-        DataGridView grid, Func<List<JsonElement>> getCurrentRecords)
-    {
-        if (grid.SelectedRows.Count == 0)
-        {
-            MessageBox.Show("Select a project first.", "Feedback");
-            return;
-        }
-
-        var records = getCurrentRecords();
-        var idx = grid.SelectedRows[0].Index;
-        if (idx < 0 || idx >= records.Count) return;
-
-        var proj = records[idx];
-        var projId = GetValueFromJson(proj, "ProjectId")?.ToString();
-        var projName = GetString(proj, "ProjectName") ?? "Project";
-        var stage = GetString(proj, "DesignStage") ?? "";
-
-        if (projId == null) return;
-
-        if (!string.Equals(stage, "Completed", StringComparison.OrdinalIgnoreCase))
-        {
-            MessageBox.Show(
-                "Feedback can only be submitted for Completed projects.\n\n" +
-                $"Current stage: {stage}",
-                "Feedback");
-            return;
-        }
-
-        using var dlg = new FeedbackDialog(projName);
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-        try
-        {
-            var url = $"{ApiUrl}/tenant/{Session.CompanyId}/projects/{projId}/feedback";
-            using var req = new HttpRequestMessage(HttpMethod.Post, url);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
-            req.Content = new StringContent(
-                JsonSerializer.Serialize(dlg.ToPayload(int.Parse(projId))),
-                System.Text.Encoding.UTF8,
-                "application/json");
-
-            using var res = await _httpClient.SendAsync(req);
-            var json = await res.Content.ReadAsStringAsync();
-
-            if (!res.IsSuccessStatusCode)
-            {
-                string msg = json;
-                try
-                {
-                    using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.TryGetProperty("message", out var m))
-                        msg = m.GetString() ?? json;
-                }
-                catch { }
-                throw new HttpRequestException(msg);
-            }
-
-            MessageBox.Show("Thank you for your feedback!", "Success");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show("Feedback failed:\n\n" + ex.Message, "Error");
-        }
-    }
-
-    private async Task ShowNewIssueDialog(
-        DataGridView grid, Func<List<JsonElement>> getCurrentRecords)
-    {
-        if (grid.SelectedRows.Count == 0)
-        {
-            MessageBox.Show("Select a project first.", "Report Issue");
-            return;
-        }
-
-        var records = getCurrentRecords();
-        var idx = grid.SelectedRows[0].Index;
-        if (idx < 0 || idx >= records.Count) return;
-
-        var proj = records[idx];
-        var projId = GetValueFromJson(proj, "ProjectId")?.ToString();
-        var projName = GetString(proj, "ProjectName") ?? "Project";
-        if (projId == null) return;
-
-        using var dlg = new NewIssueDialog(projName);
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-        try
-        {
-            var url = $"{ApiUrl}/tenant/{Session.CompanyId}/projects/{projId}/issues";
-            using var req = new HttpRequestMessage(HttpMethod.Post, url);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
-            req.Content = new StringContent(
-                JsonSerializer.Serialize(dlg.ToPayload(int.Parse(projId))),
-                System.Text.Encoding.UTF8,
-                "application/json");
-
-            using var res = await _httpClient.SendAsync(req);
-            var json = await res.Content.ReadAsStringAsync();
-
-            if (!res.IsSuccessStatusCode)
-            {
-                string msg = json;
-                try
-                {
-                    using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.TryGetProperty("message", out var m))
-                        msg = m.GetString() ?? json;
-                }
-                catch { }
-                throw new HttpRequestException(msg);
-            }
-
-            MessageBox.Show("Issue reported successfully.", "Success");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show("Report failed:\n\n" + ex.Message, "Error");
-        }
-    }
-
-    // =========================================================
-    // DESIGNERS PAGE
-    // =========================================================
-    private void BuildDesignersPage()
-    {
-        contentPanel.Controls.Clear();
-        contentPanel.Padding = new Padding(32, 20, 32, 32);
-
-        var page = new DesignersPage(ApiUrl, _httpClient);
-        contentPanel.Controls.Add(page);
-
-        // Trigger the initial load after the panel is attached
-        _ = page.LoadAsync();
-    }
-
-    // =========================================================
-    // BI DASHBOARD + RETENTION PAGES
-    // =========================================================
-    public void NavigateTo(string page) => SelectNavigation(page);
-
-    private void BuildBiDashboard()
-    {
-        contentPanel.Controls.Clear();
-        contentPanel.Padding = new Padding(32, 20, 32, 32);
-
-        var page = new BiDashboardPage(ApiUrl, _httpClient);
-        contentPanel.Controls.Add(page);
-        _ = page.LoadAsync();
-    }
-
-    private void BuildRetentionPage()
-    {
-        contentPanel.Controls.Clear();
-        contentPanel.Padding = new Padding(32, 20, 32, 32);
-
-        var page = new RetentionPage(ApiUrl, _httpClient);
-        contentPanel.Controls.Add(page);
-        _ = page.LoadAsync();
-    }
-
-    private bool CanSee(string pageName)
-    {
-        var roles = Session.Roles ?? new List<string>();
-
-        bool isSuperAdmin = roles.Contains("Super Admin");
-        bool isAdmin = roles.Contains("Admin");
-        bool isManager = roles.Contains("Manager");
-        bool isStaff = roles.Contains("Staff");
-        bool isDesigner = roles.Contains("Designer");
-
-        // Super Admin & Admin see everything
-        if (isSuperAdmin || isAdmin) return true;
-
-        // Manager permissions
-        if (isManager)
-        {
-            return pageName switch
-            {
-                "Overview" => true,
-                "Customers" => true,
-                "Leads" => true,
-                "Projects" => true,
-                "Quotations" => true,
-                "Activities" => true,
-                "Designers" => true,
-                "Users" => true,
-                "Issues" => true,
-                "Feedback" => true,
-                "Analytics" => true,
-                "Retention" => true,
-                "Reports" => true,
-                _ => false
-            };
-        }
-
-        // Staff & Designer permissions
-        return pageName switch
-        {
-            "Overview" => true,
-            "Projects" => true,
-            "Activities" => true,
-            "Issues" => true,
-            "Feedback" => true,
-
-            "Customers" => isStaff,
-            "Leads" => isStaff,
-            "Quotations" => isStaff,
-            "Designers" => isStaff,
-            "Reports" => isStaff,
-
-            "Analytics" => false,
-            "Retention" => false,
-            "Users" => false,
-
-            _ => false
-        };
-    }
-
-    // =========================================================
-    // USERS PAGE
-    // =========================================================
-    private void BuildUsersPage()
-    {
-        contentPanel.Controls.Clear();
-        contentPanel.Padding = new Padding(32, 20, 32, 32);
-
-        var page = new UsersPage(ApiUrl, _httpClient);
-        contentPanel.Controls.Add(page);
-        _ = page.LoadAsync();
-    }
-
 }

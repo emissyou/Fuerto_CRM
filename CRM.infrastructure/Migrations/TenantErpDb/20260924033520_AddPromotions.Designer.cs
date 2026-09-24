@@ -4,6 +4,7 @@ using CRM.infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CRM.infrastructure.Migrations.TenantErpDb
 {
     [DbContext(typeof(TenantErpDbContext))]
-    partial class TenantErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260924033520_AddPromotions")]
+    partial class AddPromotions
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -918,9 +921,6 @@ namespace CRM.infrastructure.Migrations.TenantErpDb
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<int?>("ProjectId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("PromotionId")
                         .HasColumnType("int");
 
                     b.Property<string>("ScriptUsed")

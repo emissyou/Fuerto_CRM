@@ -65,7 +65,6 @@ public static class UserManagementEndpoints
                 admins = sorted.Count(r => ((dynamic)r).role == ApplicationRoles.Admin),
                 managers = sorted.Count(r => ((dynamic)r).role == ApplicationRoles.Manager),
                 staff = sorted.Count(r => ((dynamic)r).role == ApplicationRoles.Staff),
-                designers = sorted.Count(r => ((dynamic)r).role == ApplicationRoles.Designer),
                 users = sorted
             });
         });
@@ -134,7 +133,7 @@ public static class UserManagementEndpoints
             if (!IsAdmin(http) && IsManager(http))
             {
                 if (!ApplicationRoles.ManagerCanTouch.Contains(request.Role))
-                    return Results.BadRequest(new { message = "Managers can only create Staff or Designer accounts." });
+                    return Results.BadRequest(new { message = "Managers can only create Staff accounts." });
             }
 
             var existing = await userManager.FindByEmailAsync(request.Email);
@@ -212,7 +211,7 @@ public static class UserManagementEndpoints
 
                 // Manager cannot promote anyone TO Admin or Manager
                 if (!ApplicationRoles.ManagerCanTouch.Contains(request.Role))
-                    return Results.BadRequest(new { message = "Managers can only assign Staff or Designer roles." });
+                    return Results.BadRequest(new { message = "Managers can only assign the Staff role." });
             }
 
             if (string.IsNullOrWhiteSpace(request.Role))
@@ -364,8 +363,8 @@ public static class UserManagementEndpoints
                     return Results.BadRequest(new { message = "Cannot delete the last Admin in the company." });
             }
 
-            // Designer safety check
-            if (targetRole == ApplicationRoles.Designer)
+            // Staff safety check — prevent deletion if assigned to active projects
+            if (targetRole == ApplicationRoles.Staff)
             {
                 await using var db = await tenantFactory.CreateAsync(companyId);
                 var activeProjects = await db.Projects
@@ -378,7 +377,7 @@ public static class UserManagementEndpoints
                 if (activeProjects > 0)
                     return Results.BadRequest(new
                     {
-                        message = $"Cannot delete: designer has {activeProjects} active project(s). Reassign them first."
+                        message = $"Cannot delete: staff member has {activeProjects} active project(s). Reassign them first."
                     });
             }
 
@@ -396,7 +395,7 @@ public static class UserManagementEndpoints
     private static bool IsAdmin(HttpContext http) =>
         http.User.IsInRole(ApplicationRoles.Admin) || http.User.IsInRole(ApplicationRoles.SuperAdmin);
 
-    private static bool IsManager(HttpContext http) =>
+    private static bool IsManager(HttpContext http) =>  
         http.User.IsInRole(ApplicationRoles.Manager);
 
     private static bool IsAdminOrManager(HttpContext http) =>
@@ -407,7 +406,6 @@ public static class UserManagementEndpoints
         ApplicationRoles.Admin => 1,
         ApplicationRoles.Manager => 2,
         ApplicationRoles.Staff => 3,
-        ApplicationRoles.Designer => 4,
         _ => 99
     };
 

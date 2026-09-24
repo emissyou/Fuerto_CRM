@@ -2,7 +2,7 @@
 using CRM.domain.Enums;
 using Microsoft.AspNetCore.Identity;
 
-namespace CRM.api.Data;   // ← adjust to match your actual folder
+namespace CRM.api.Data;
 
 public static class IdentitySeeder
 {
@@ -38,21 +38,25 @@ public static class IdentitySeeder
             await userManager.AddToRoleAsync(user, ApplicationRoles.SuperAdmin);
     }
 
+    /// <summary>
+    /// Seeds the 5 default staff members (formerly called "designers").
+    /// Staff does design work, so they all get the Staff role.
+    /// </summary>
     public static async Task SeedDesignersAsync(
-    UserManager<ApplicationUser> userManager,
-    int companyId)
+        UserManager<ApplicationUser> userManager,
+        int companyId)
     {
         // (FullName, Email, Password)
-        var designers = new[]
+        var staff = new[]
         {
-        ("Marco Reyes",     "marco.reyes@fuerto.local",     "Design@12345"),
-        ("Sofia Lim",       "sofia.lim@fuerto.local",       "Design@12345"),
-        ("Diego Santos",    "diego.santos@fuerto.local",    "Design@12345"),
-        ("Elena Cruz",      "elena.cruz@fuerto.local",      "Design@12345"),
-        ("Rafael Tan",      "rafael.tan@fuerto.local",      "Design@12345")
-    };
+            ("Marco Reyes",  "marco.reyes@fuerto.local",  "Design@12345"),
+            ("Sofia Lim",    "sofia.lim@fuerto.local",    "Design@12345"),
+            ("Diego Santos", "diego.santos@fuerto.local", "Design@12345"),
+            ("Elena Cruz",   "elena.cruz@fuerto.local",   "Design@12345"),
+            ("Rafael Tan",   "rafael.tan@fuerto.local",   "Design@12345")
+        };
 
-        foreach (var (fullName, email, password) in designers)
+        foreach (var (fullName, email, password) in staff)
         {
             var existing = await userManager.FindByEmailAsync(email);
             if (existing != null) continue;
@@ -69,7 +73,7 @@ public static class IdentitySeeder
             var result = await userManager.CreateAsync(user, password);
             if (result.Succeeded)
             {
-                await userManager.AddToRoleAsync(user, "Designer");
+                await userManager.AddToRoleAsync(user, ApplicationRoles.Staff);
             }
         }
     }
