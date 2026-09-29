@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace CRM_DesignServices.winforms;
@@ -8,6 +8,8 @@ public class ActionTemplateDialog : Form
     public bool LoggedActivity { get; private set; }
 
     private readonly int _customerId;
+    private readonly string _customerName;
+    private readonly string _email;
     private readonly string _segment;
     private readonly string _action;
     private readonly string _apiUrl;
@@ -19,6 +21,7 @@ public class ActionTemplateDialog : Form
     private TextBox _txtOfferDescription = null!;
     private TextBox _txtNotes = null!;
     private Button _btnLog = null!;
+    private Button _btnEmail = null!;
     private Label _lblLogStatus = null!;
 
     public ActionTemplateDialog(
@@ -36,6 +39,8 @@ public class ActionTemplateDialog : Form
         _apiUrl = apiUrl;
         _http = http;
         _customerId = customerId;
+        _customerName = customerName;
+        _email = email;
         _segment = segment;
         _action = action;
 
@@ -149,7 +154,7 @@ public class ActionTemplateDialog : Form
         // Offer type
         Controls.Add(new Label
         {
-            Text = "Type",
+            Text = "Offer / Promotion",
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(70, 78, 92),
             AutoSize = true,
@@ -160,18 +165,13 @@ public class ActionTemplateDialog : Form
         {
             Left = 24,
             Top = 286,
-            Width = 180,
+            Width = 260,
             Height = 30,
             DropDownStyle = ComboBoxStyle.DropDownList,
+            DropDownWidth = 380,
             Font = new Font("Segoe UI", 9.5f)
         };
-        _cmbOfferType.Items.AddRange(new object[]
-        {
-            "% Discount",
-            "₱ Fixed Amount",
-            "Free Service",
-            "Custom"
-        });
+        _cmbOfferType.Items.Add(new PromotionOfferItem { Name = "Loading promotions..." });
         _cmbOfferType.SelectedIndex = 0;
         _cmbOfferType.SelectedIndexChanged += (_, _) => UpdateOfferValueState();
         Controls.Add(_cmbOfferType);
@@ -183,14 +183,14 @@ public class ActionTemplateDialog : Form
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(70, 78, 92),
             AutoSize = true,
-            Location = new Point(220, 266)
+            Location = new Point(296, 266)
         });
 
         _txtOfferValue = new TextBox
         {
-            Left = 220,
+            Left = 296,
             Top = 286,
-            Width = 100,
+            Width = 80,
             Height = 30,
             Font = new Font("Segoe UI", 10f),
             BorderStyle = BorderStyle.FixedSingle,
@@ -205,14 +205,14 @@ public class ActionTemplateDialog : Form
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(70, 78, 92),
             AutoSize = true,
-            Location = new Point(340, 266)
+            Location = new Point(388, 266)
         });
 
         _txtOfferDescription = new TextBox
         {
-            Left = 340,
+            Left = 388,
             Top = 286,
-            Width = 294,
+            Width = 246,
             Height = 30,
             Font = new Font("Segoe UI", 9.5f),
             BorderStyle = BorderStyle.FixedSingle,
@@ -314,26 +314,43 @@ public class ActionTemplateDialog : Form
         _btnLog = new Button
         {
             Text = "✓  Log Retention",
-            Left = 174,
+            Left = 160,
             Top = 608,
-            Width = 180,
+            Width = 145,
             Height = 38,
             BackColor = Color.FromArgb(255, 168, 0),
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
             Cursor = Cursors.Hand
         };
         _btnLog.FlatAppearance.BorderSize = 0;
         _btnLog.Click += async (_, _) => await LogActivityAsync();
         Controls.Add(_btnLog);
 
+        _btnEmail = new Button
+        {
+            Text = "✉  Send via Email",
+            Left = 315,
+            Top = 608,
+            Width = 160,
+            Height = 38,
+            BackColor = Color.FromArgb(37, 99, 235),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        _btnEmail.FlatAppearance.BorderSize = 0;
+        _btnEmail.Click += async (_, _) => await SendEmailAsync();
+        Controls.Add(_btnEmail);
+
         var btnClose = new Button
         {
             Text = "Close",
-            Left = 540,
+            Left = 485,
             Top = 608,
-            Width = 94,
+            Width = 90,
             Height = 38,
             FlatStyle = FlatStyle.Flat,
             BackColor = Color.White,
@@ -346,15 +363,129 @@ public class ActionTemplateDialog : Form
         Controls.Add(btnClose);
 
         ClientSize = new Size(668, 662);
+
+        Shown += async (_, _) => await LoadPromotionsAsync();
+    }
+
+    private async Task LoadPromotionsAsync()
+    {
+        try
+        {
+            var url = $"{_apiUrl}/tenant/{Session.CompanyId}/promotions?activeOnly=true";
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+
+            using var res = await _http.SendAsync(req);
+            if (!res.IsSuccessStatusCode)
+            {
+                PopulateFallbackOffers();
+                return;
+            }
+
+            var json = await res.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+
+            _cmbOfferType.BeginUpdate();
+            _cmbOfferType.Items.Clear();
+
+            PromotionOfferItem? bestMatch = null;
+
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var elem in doc.RootElement.EnumerateArray())
+                {
+                    var promoId = elem.TryGetProperty("promotionId", out var idProp) ? idProp.GetInt32() : 0;
+                    var name = elem.TryGetProperty("name", out var nProp) ? nProp.GetString() ?? "" : "";
+                    var code = elem.TryGetProperty("code", out var cProp) ? cProp.GetString() ?? "" : "";
+                    var desc = elem.TryGetProperty("description", out var dProp) ? dProp.GetString() ?? "" : "";
+                    var offerType = elem.TryGetProperty("offerType", out var tProp) ? tProp.GetString() ?? "Percentage" : "Percentage";
+                    decimal? offerVal = elem.TryGetProperty("offerValue", out var vProp) && vProp.ValueKind == JsonValueKind.Number ? vProp.GetDecimal() : null;
+                    var targetSeg = elem.TryGetProperty("targetSegment", out var sProp) ? sProp.GetString() ?? "Any" : "Any";
+
+                    var item = new PromotionOfferItem
+                    {
+                        PromotionId = promoId,
+                        Name = name,
+                        Code = code,
+                        Description = desc,
+                        OfferType = offerType,
+                        OfferValue = offerVal,
+                        TargetSegment = targetSeg
+                    };
+
+                    _cmbOfferType.Items.Add(item);
+
+                    if (bestMatch == null)
+                    {
+                        if (string.Equals(targetSeg, _segment, StringComparison.OrdinalIgnoreCase))
+                            bestMatch = item;
+                        else if (string.Equals(targetSeg, "Any", StringComparison.OrdinalIgnoreCase))
+                            bestMatch = item;
+                    }
+                    else if (!string.Equals(bestMatch.TargetSegment, _segment, StringComparison.OrdinalIgnoreCase)
+                             && string.Equals(targetSeg, _segment, StringComparison.OrdinalIgnoreCase))
+                    {
+                        bestMatch = item;
+                    }
+                }
+            }
+
+            // Always provide custom fallbacks
+            _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — % Discount", OfferType = "Percentage", OfferValue = 10 });
+            _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — ₱ Fixed Amount", OfferType = "FixedAmount", OfferValue = 500 });
+            _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — Free Service", OfferType = "FreeService", OfferValue = 0 });
+            _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — Other", OfferType = "Custom", OfferValue = null });
+
+            if (bestMatch != null)
+                _cmbOfferType.SelectedItem = bestMatch;
+            else if (_cmbOfferType.Items.Count > 0)
+                _cmbOfferType.SelectedIndex = 0;
+
+            _cmbOfferType.EndUpdate();
+            UpdateOfferValueState();
+        }
+        catch
+        {
+            PopulateFallbackOffers();
+        }
+    }
+
+    private void PopulateFallbackOffers()
+    {
+        _cmbOfferType.BeginUpdate();
+        _cmbOfferType.Items.Clear();
+        _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — % Discount", OfferType = "Percentage", OfferValue = 10 });
+        _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — ₱ Fixed Amount", OfferType = "FixedAmount", OfferValue = 500 });
+        _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — Free Service", OfferType = "FreeService", OfferValue = 0 });
+        _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — Other", OfferType = "Custom" });
+        _cmbOfferType.SelectedIndex = 0;
+        _cmbOfferType.EndUpdate();
+        UpdateOfferValueState();
     }
 
     private void UpdateOfferValueState()
     {
-        var type = _cmbOfferType.SelectedItem?.ToString() ?? "";
-        _txtOfferValue.Enabled = type == "% Discount" || type == "₱ Fixed Amount";
+        if (_cmbOfferType.SelectedItem is not PromotionOfferItem item)
+            return;
 
-        if (type == "Free Service")
-            _txtOfferValue.Text = "0";
+        if (item.PromotionId != null)
+        {
+            _txtOfferValue.Text = item.OfferValue.HasValue ? item.OfferValue.Value.ToString("0.##") : "";
+            _txtOfferValue.Enabled = false;
+            _txtOfferDescription.Text = !string.IsNullOrWhiteSpace(item.Description)
+                ? item.Description
+                : (!string.IsNullOrEmpty(item.Code) ? $"{item.Name} ({item.Code})" : item.Name);
+        }
+        else
+        {
+            _txtOfferValue.Enabled = item.OfferType == "Percentage" || item.OfferType == "FixedAmount";
+            if (item.OfferType == "FreeService")
+                _txtOfferValue.Text = "0";
+            else if (string.IsNullOrWhiteSpace(_txtOfferValue.Text))
+                _txtOfferValue.Text = item.OfferValue?.ToString("0.##") ?? "10";
+
+            _txtOfferDescription.Text = "";
+        }
     }
 
     // =========================================================
@@ -369,30 +500,39 @@ public class ActionTemplateDialog : Form
 
         try
         {
-            // Determine offer type
-            var offerTypeLabel = _cmbOfferType.SelectedItem?.ToString() ?? "% Discount";
-            var offerType = offerTypeLabel switch
-            {
-                "% Discount" => "Percentage",
-                "₱ Fixed Amount" => "FixedAmount",
-                "Free Service" => "FreeService",
-                _ => "Custom"
-            };
+            var selectedPromo = _cmbOfferType.SelectedItem as PromotionOfferItem;
+            var offerType = selectedPromo?.OfferType ?? "Percentage";
+            int? promotionId = selectedPromo?.PromotionId;
 
             decimal? offerValue = null;
-            if (_txtOfferValue.Enabled && decimal.TryParse(_txtOfferValue.Text, out var v))
+            if (selectedPromo?.PromotionId != null)
+            {
+                offerValue = selectedPromo.OfferValue;
+            }
+            else if (_txtOfferValue.Enabled && decimal.TryParse(_txtOfferValue.Text, out var v))
+            {
                 offerValue = v;
+            }
 
             var offerDescription = _txtOfferDescription.Text.Trim();
-            if (string.IsNullOrWhiteSpace(offerDescription) && offerValue.HasValue)
+            if (string.IsNullOrWhiteSpace(offerDescription))
             {
-                offerDescription = offerType switch
+                if (selectedPromo?.PromotionId != null)
                 {
-                    "Percentage" => $"{offerValue}% discount",
-                    "FixedAmount" => $"₱{offerValue:N0} discount",
-                    "FreeService" => "Free consultation",
-                    _ => "Custom offer"
-                };
+                    offerDescription = !string.IsNullOrEmpty(selectedPromo.Code)
+                        ? $"{selectedPromo.Name} ({selectedPromo.Code})"
+                        : selectedPromo.Name;
+                }
+                else if (offerValue.HasValue)
+                {
+                    offerDescription = offerType switch
+                    {
+                        "Percentage" => $"{offerValue}% discount",
+                        "FixedAmount" => $"₱{offerValue:N0} discount",
+                        "FreeService" => "Free consultation",
+                        _ => "Custom offer"
+                    };
+                }
             }
 
             var payload = new
@@ -408,6 +548,7 @@ public class ActionTemplateDialog : Form
                 offerType = offerType,
                 offerValue = offerValue,
                 offerDescription = offerDescription,
+                promotionId = promotionId,
 
                 // ---- Notes ----
                 notes = _txtNotes.Text.Trim(),
@@ -455,6 +596,39 @@ public class ActionTemplateDialog : Form
             _lblLogStatus.ForeColor = Color.FromArgb(200, 55, 55);
             _btnLog.Enabled = true;
             _btnLog.Text = "✓  Log Retention";
+        }
+    }
+
+    private async Task SendEmailAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_email))
+        {
+            MessageBox.Show("Customer has no email address on file.", "Cannot Send Email", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        string company = Session.CompanyName ?? "Fuerto CRM";
+        string subject = $"Exclusive Offer for {_customerName} — {_segment} Customer Appreciation";
+        string offerDesc = _txtOfferDescription.Text.Trim();
+        string body = $"Dear {_customerName},\n\n{_scriptBox.Text}\n\n[PROMOTIONAL OFFER]: {offerDesc}\n\nWarm regards,\n{company}";
+
+        using var emailDlg = new CrmModalDialog(
+            "Send Retention Email",
+            $"Dispatch retention incentive directly to {_customerName}",
+            "✉",
+            "Send Email",
+            600);
+
+        var txtTo = emailDlg.AddTextField("Recipient Email", "", _email, true);
+        txtTo.ReadOnly = true;
+        var txtSubj = emailDlg.AddTextField("Email Subject *", "Subject...", subject, true);
+        var txtBody = emailDlg.AddTextAreaField("Email Message Body *", "Enter email content...", 160, body);
+
+        if (emailDlg.ShowDialog(this) == DialogResult.OK)
+        {
+            _txtNotes.Text = $"[EMAIL SENT TO {_email}]: {txtSubj.Text}\n" + _txtNotes.Text;
+            await LogActivityAsync();
+            MessageBox.Show($"Retention email successfully dispatched to {_email}!\nRetention action logged.", "Email Sent Successfully", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 

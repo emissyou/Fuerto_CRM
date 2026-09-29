@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace CRM_DesignServices.winforms;
@@ -8,11 +8,12 @@ public class DesignersPage : Panel
     private readonly string _apiUrl;
     private readonly HttpClient _http;
     private readonly DataGridView _grid;
-    private readonly Label _lblStatus;
     private readonly Button _btnRefresh;
     private readonly Button _btnView;
+    private readonly CrmFilterBar _filterBar;
 
     private List<JsonElement> _designers = new();
+    private List<JsonElement> _filteredDesigners = new();
 
     public DesignersPage(string apiUrl, HttpClient http)
     {
@@ -24,24 +25,14 @@ public class DesignersPage : Panel
         Padding = new Padding(32, 20, 32, 32);
 
         // ---- Toolbar ----
-        var header = new Panel { Dock = DockStyle.Top, Height = 56 };
+        var header = new Panel { Dock = DockStyle.Top, Height = 50 };
         Controls.Add(header);
-
-        _lblStatus = new Label
-        {
-            Text = "Loading...",
-            ForeColor = Color.FromArgb(110, 118, 132),
-            Font = new Font("Segoe UI", 10f),
-            AutoSize = true,
-            Location = new Point(0, 16)
-        };
-        header.Controls.Add(_lblStatus);
 
         _btnRefresh = new Button
         {
             Text = "↻  Refresh",
-            Left = 140,
-            Top = 8,
+            Left = 0,
+            Top = 7,
             Width = 110,
             Height = 36,
             FlatStyle = FlatStyle.Flat,
@@ -57,9 +48,9 @@ public class DesignersPage : Panel
         _btnView = new Button
         {
             Text = "👁  View Details",
-            Left = 260,
-            Top = 8,
-            Width = 150,
+            Left = 118,
+            Top = 7,
+            Width = 140,
             Height = 36,
             FlatStyle = FlatStyle.Flat,
             BackColor = Color.FromArgb(255, 245, 225),
@@ -71,45 +62,28 @@ public class DesignersPage : Panel
         _btnView.Click += async (_, _) => await OpenDetailAsync();
         header.Controls.Add(_btnView);
 
-        // ---- Grid ----
+        // ---- Filter Bar ----
+        _filterBar = new CrmFilterBar("Search designers by name, email...");
+        _filterBar.AddFilter("Tier", "Tier", "Top Rated (≥ 4.0 ★)", "Good (3.0 - 3.9 ★)", "Needs Review (< 3.0 ★)");
+        _filterBar.AddFilter("Workload", "Workload", "Active Projects (> 0)", "Available (0 Active)", "Has Open Issues");
+        _filterBar.FiltersChanged += (_, _) => ApplyFilters();
+        Controls.Add(_filterBar);
+        _filterBar.BringToFront();
+
+        // ---- Card & Grid ----
+        var card = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.White,
+            Padding = new Padding(1)
+        };
+        Controls.Add(card);
+        card.BringToFront();
+
         _grid = new DataGridView
         {
             Dock = DockStyle.Fill,
-            BackgroundColor = Color.White,
-            BorderStyle = BorderStyle.None,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            ReadOnly = true,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect = false,
-            RowHeadersVisible = false,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersHeight = 42
-        };
-        _grid.RowTemplate.Height = 52;
-
-        _grid.ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
-        {
-            BackColor = Color.FromArgb(249, 250, 252),
-            ForeColor = Color.FromArgb(85, 93, 106),
-            Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
-            Padding = new Padding(12, 0, 12, 0),
-            SelectionBackColor = Color.FromArgb(249, 250, 252),
-            SelectionForeColor = Color.FromArgb(85, 93, 106)
-        };
-        _grid.DefaultCellStyle = new DataGridViewCellStyle
-        {
-            BackColor = Color.White,
-            ForeColor = Color.FromArgb(28, 32, 40),
-            Font = new Font("Segoe UI", 9.25f),
-            Padding = new Padding(12, 0, 12, 0),
-            SelectionBackColor = Color.FromArgb(255, 245, 225),
-            SelectionForeColor = Color.FromArgb(28, 32, 40)
-        };
-        _grid.AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
-        {
-            BackColor = Color.FromArgb(250, 251, 253)
+            AutoGenerateColumns = false
         };
 
         _grid.Columns.Add("fullName", "DESIGNER");
@@ -121,23 +95,28 @@ public class DesignersPage : Panel
         _grid.Columns.Add("feedbackCount", "RATINGS");
         _grid.Columns.Add("rating", "AVG RATING");
 
+        _grid.Columns["fullName"].FillWeight = 130;
+        _grid.Columns["email"].FillWeight = 140;
+        _grid.Columns["totalProjects"].FillWeight = 70;
+        _grid.Columns["activeProjects"].FillWeight = 60;
+        _grid.Columns["completedProjects"].FillWeight = 70;
+        _grid.Columns["openIssues"].FillWeight = 65;
+        _grid.Columns["feedbackCount"].FillWeight = 65;
+        _grid.Columns["rating"].FillWeight = 100;
+
+        CrmTableStyler.Apply(_grid);
+
         _grid.CellDoubleClick += async (_, e) =>
         {
             if (e.RowIndex >= 0)
                 await OpenDetailAsync();
         };
 
-        Controls.Add(_grid);
-        _grid.BringToFront();
-
+        card.Controls.Add(_grid);
     }
 
     public async Task LoadAsync()
     {
-        _lblStatus.Text = "Loading designers...";
-        _lblStatus.ForeColor = Color.FromArgb(110, 118, 132);
-        _grid.Rows.Clear();
-
         try
         {
             var url = $"{_apiUrl}/tenant/{Session.CompanyId}/designers";
@@ -149,39 +128,81 @@ public class DesignersPage : Panel
 
             if (!res.IsSuccessStatusCode)
             {
-                _lblStatus.Text = $"Failed: {(int)res.StatusCode} {res.ReasonPhrase}";
-                _lblStatus.ForeColor = Color.FromArgb(200, 55, 55);
+                _filterBar.SetRecordCount(0, 0);
                 return;
             }
 
             using var doc = JsonDocument.Parse(json);
             _designers = doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList();
+            ApplyFilters();
+        }
+        catch
+        {
+            _filterBar.SetRecordCount(0, 0);
+        }
+    }
 
-            foreach (var d in _designers)
+    private void ApplyFilters()
+    {
+        var search = _filterBar.SearchText;
+        var tier = _filterBar.GetFilterValue("Tier");
+        var workload = _filterBar.GetFilterValue("Workload");
+
+        _filteredDesigners = _designers.Where(d =>
+        {
+            if (!string.IsNullOrWhiteSpace(search))
             {
-                var stars = Stars(GetDouble(d, "overallScore"));
-                var avgText = GetDouble(d, "overallScore") is double s
-                    ? $"{stars}  {s:F2}"
-                    : "— no ratings —";
-
-                _grid.Rows.Add(
-                    GetStr(d, "fullName"),
-                    GetStr(d, "email"),
-                    GetInt(d, "totalProjects"),
-                    GetInt(d, "activeProjects"),
-                    GetInt(d, "completedProjects"),
-                    GetInt(d, "openIssues"),
-                    GetInt(d, "feedbackCount"),
-                    avgText);
+                var name = GetStr(d, "fullName");
+                var email = GetStr(d, "email");
+                if (!name.Contains(search, StringComparison.OrdinalIgnoreCase) &&
+                    !email.Contains(search, StringComparison.OrdinalIgnoreCase))
+                    return false;
             }
 
-            _lblStatus.Text = $"{_designers.Count} designer{(_designers.Count == 1 ? "" : "s")}";
-            _lblStatus.ForeColor = Color.FromArgb(110, 118, 132);
-        }
-        catch (Exception ex)
+            var score = GetDouble(d, "overallScore");
+            if (tier != null)
+            {
+                if (tier.StartsWith("Top") && (score == null || score < 4.0)) return false;
+                if (tier.StartsWith("Good") && (score == null || score < 3.0 || score >= 4.0)) return false;
+                if (tier.StartsWith("Needs") && (score == null || score >= 3.0)) return false;
+            }
+
+            if (workload != null)
+            {
+                var active = GetInt(d, "activeProjects");
+                var issues = GetInt(d, "openIssues");
+                if (workload.StartsWith("Active") && active == 0) return false;
+                if (workload.StartsWith("Available") && active > 0) return false;
+                if (workload.StartsWith("Has") && issues == 0) return false;
+            }
+
+            return true;
+        }).ToList();
+
+        RenderGrid();
+        _filterBar.SetRecordCount(_filteredDesigners.Count, _designers.Count);
+    }
+
+    private void RenderGrid()
+    {
+        _grid.Rows.Clear();
+
+        foreach (var d in _filteredDesigners)
         {
-            _lblStatus.Text = "Error: " + ex.Message;
-            _lblStatus.ForeColor = Color.FromArgb(200, 55, 55);
+            var stars = Stars(GetDouble(d, "overallScore"));
+            var avgText = GetDouble(d, "overallScore") is double s
+                ? $"{stars}  {s:F2}"
+                : "— no ratings —";
+
+            _grid.Rows.Add(
+                GetStr(d, "fullName"),
+                GetStr(d, "email"),
+                GetInt(d, "totalProjects"),
+                GetInt(d, "activeProjects"),
+                GetInt(d, "completedProjects"),
+                GetInt(d, "openIssues"),
+                GetInt(d, "feedbackCount"),
+                avgText);
         }
     }
 
@@ -194,9 +215,9 @@ public class DesignersPage : Panel
         }
 
         var idx = _grid.SelectedRows[0].Index;
-        if (idx < 0 || idx >= _designers.Count) return;
+        if (idx < 0 || idx >= _filteredDesigners.Count) return;
 
-        var designer = _designers[idx];
+        var designer = _filteredDesigners[idx];
         var designerId = GetStr(designer, "userId");
         if (string.IsNullOrWhiteSpace(designerId)) return;
 

@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using CRM.domain.Entities;
 
 namespace CRM.infrastructure.Data;
@@ -35,6 +35,8 @@ public class TenantErpDbContext : DbContext
     public DbSet<ProjectIssue> ProjectIssues => Set<ProjectIssue>();
 
     public DbSet<Promotion> Promotions => Set<Promotion>();
+
+    public DbSet<Branch> Branches => Set<Branch>();
 
 
 
@@ -435,6 +437,17 @@ public class TenantErpDbContext : DbContext
             entity.Property(x => x.CreatedByName).HasMaxLength(200);
 
             entity.Ignore(x => x.Company);
+        });
+
+        builder.Entity<Branch>(entity =>
+        {
+            entity.HasKey(x => x.BranchId);
+
+            entity.Property(x => x.BranchCode).HasMaxLength(50).IsRequired();
+            entity.Property(x => x.BranchName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Address).HasMaxLength(500);
+            entity.Property(x => x.ContactNumber).HasMaxLength(50);
+            entity.Property(x => x.Email).HasMaxLength(100);
         });
     }
 }

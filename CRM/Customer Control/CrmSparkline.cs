@@ -11,6 +11,7 @@ public class CrmSparkline : Control
     public int LineThickness { get; set; } = 2;
     public bool ShowFill { get; set; } = true;
     public bool ShowDots { get; set; } = false;
+    public bool HighlightLastPoint { get; set; } = true;
 
     public CrmSparkline()
     {
@@ -56,31 +57,33 @@ public class CrmSparkline : Control
             points[i] = new PointF(x, y);
         }
 
-        // Fill
+        const float tension = 0.35f;
+
+        // Fill — smooth curve outline dropped down to the baseline
         if (ShowFill && points.Length > 1)
         {
-            var fillPoints = new PointF[points.Length + 2];
-            Array.Copy(points, fillPoints, points.Length);
-            fillPoints[^2] = new PointF(points[^1].X, Height - padding);
-            fillPoints[^1] = new PointF(points[0].X, Height - padding);
+            using var fillPath = new GraphicsPath();
+            fillPath.AddCurve(points, tension);
+            fillPath.AddLine(points[^1].X, Height - padding, points[0].X, Height - padding);
+            fillPath.CloseFigure();
 
             using var fillBrush = new LinearGradientBrush(
                 new PointF(0, 0),
                 new PointF(0, Height),
-                Color.FromArgb(120, FillColor),
+                Color.FromArgb(130, FillColor),
                 Color.FromArgb(0, FillColor));
 
-            g.FillPolygon(fillBrush, fillPoints);
+            g.FillPath(fillBrush, fillPath);
         }
 
-        // Line
+        // Line — smoothed via Catmull-Rom curve instead of straight segments
         using var linePen = new Pen(LineColor, LineThickness)
         {
             StartCap = LineCap.Round,
             EndCap = LineCap.Round,
             LineJoin = LineJoin.Round
         };
-        g.DrawLines(linePen, points);
+        g.DrawCurve(linePen, points, tension);
 
         // Dots
         if (ShowDots)
@@ -88,6 +91,19 @@ public class CrmSparkline : Control
             using var dotBrush = new SolidBrush(LineColor);
             foreach (var p in points)
                 g.FillEllipse(dotBrush, p.X - 2, p.Y - 2, 4, 4);
+        }
+
+        // Highlighted end point — a small ringed dot draws the eye to "now"
+        if (HighlightLastPoint)
+        {
+            var last = points[^1];
+            using var ringBrush = new SolidBrush(Color.White);
+            using var ringPen = new Pen(LineColor, 1.5f);
+            using var coreBrush = new SolidBrush(LineColor);
+
+            g.FillEllipse(ringBrush, last.X - 4, last.Y - 4, 8, 8);
+            g.DrawEllipse(ringPen, last.X - 4, last.Y - 4, 8, 8);
+            g.FillEllipse(coreBrush, last.X - 2, last.Y - 2, 4, 4);
         }
     }
 }

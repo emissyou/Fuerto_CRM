@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using CRM.domain.Entities;
 
@@ -11,6 +11,8 @@ public class MasterErpDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Device> Devices { get; set; }
 
     public DbSet<CompanyDatabase> CompanyDatabases => Set<CompanyDatabase>();
+
+    public DbSet<CompanySubscription> CompanySubscriptions => Set<CompanySubscription>();
 
     public MasterErpDbContext(
         DbContextOptions<MasterErpDbContext> options)
@@ -83,6 +85,31 @@ public class MasterErpDbContext : IdentityDbContext<ApplicationUser>
 
             entity.HasIndex(x => new { x.CompanyId, x.DeviceCode })
                 .IsUnique();
+        });
+
+        builder.Entity<CompanySubscription>(entity =>
+        {
+            entity.HasKey(x => x.SubscriptionId);
+
+            entity.HasOne(x => x.Company)
+                .WithMany()
+                .HasForeignKey(x => x.CompanyId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Property(x => x.PlanName)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(x => x.Status)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(x => x.MonthlyFee)
+                .HasColumnType("decimal(18,2)");
+
+            entity.Property(x => x.AvailedModules)
+                .HasMaxLength(500)
+                .IsRequired();
         });
     }
 }

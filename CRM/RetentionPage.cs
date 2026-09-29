@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace CRM_DesignServices.winforms;
@@ -9,7 +9,7 @@ public class RetentionPage : Panel
     private readonly HttpClient _http;
 
     private DataGridView _grid = null!;
-    private ComboBox _cmbFilter = null!;
+    private CrmFilterBar _filterBar = null!;
     private Label _lblStatus = null!;
     private Button _btnRefresh = null!;
     private Button _btnRetainAny = null!;
@@ -37,26 +37,87 @@ public class RetentionPage : Panel
         // =========================================================
         // HEADER (toolbar)
         // =========================================================
-        var header = new Panel { Dock = DockStyle.Top, Height = 60 };
+        var header = new Panel { Dock = DockStyle.Top, Height = 56 };
         Controls.Add(header);
 
-        _lblStatus = new Label
+        // ---- NEW: Retain Any Customer / Add Member (Primary Action) ----
+        _btnRetainAny = new Button
         {
-            Text = "Loading...",
-            ForeColor = Color.FromArgb(110, 118, 132),
-            Font = new Font("Segoe UI", 10f),
-            AutoSize = true,
-            Location = new Point(0, 18)
+            Text = CompanyTerminology.BtnNewRetention,
+            Left = 0,
+            Top = 8,
+            Width = 190,
+            Height = 36,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(255, 168, 0),
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Cursor = Cursors.Hand
         };
-        header.Controls.Add(_lblStatus);
+        _btnRetainAny.FlatAppearance.BorderSize = 0;
+        _btnRetainAny.Click += async (_, _) =>
+        {
+            using var dlg = new RetainCustomerDialog(_apiUrl, _http);
+            if (dlg.ShowDialog(FindForm()) == DialogResult.OK)
+            {
+                await LoadAsync();
+            }
+        };
+        header.Controls.Add(_btnRetainAny);
+
+        // ---- Send via Email button ----
+        var btnSendEmail = new Button
+        {
+            Text = "✉  Send via Email",
+            Left = 198,
+            Top = 8,
+            Width = 150,
+            Height = 36,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(37, 99, 235),
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        btnSendEmail.FlatAppearance.BorderSize = 0;
+        btnSendEmail.Click += (_, _) =>
+        {
+            if (_grid.CurrentRow != null && _grid.CurrentRow.Index >= 0)
+            {
+                int rIdx = _grid.CurrentRow.Index;
+                var row = _grid.Rows[rIdx];
+                var name = row.Cells["name"].Value?.ToString() ?? "";
+                var seg = row.Cells["segment"].Value?.ToString() ?? "";
+                var basis = row.Cells["basis"].Value?.ToString() ?? "";
+                var action = row.Cells["action"].Value?.ToString() ?? "";
+
+                var match = _filtered.FirstOrDefault(r => GetStr(r, "fullName") == name);
+                if (match.ValueKind != JsonValueKind.Undefined)
+                {
+                    var custId = GetInt(match, "customerId");
+                    using var dlg = new ActionTemplateDialog(
+                        _apiUrl, _http,
+                        custId, name, seg, action, basis,
+                        GetStr(match, "email"),
+                        GetStr(match, "phone"),
+                        GetDecimal(match, "totalRevenue"));
+                    dlg.ShowDialog(FindForm());
+                }
+            }
+            else
+            {
+                MessageBox.Show("Please select a customer from the table first.", "Notice", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        };
+        header.Controls.Add(btnSendEmail);
 
         // ---- Refresh ----
         _btnRefresh = new Button
         {
             Text = "↻  Refresh",
-            Left = 220,
+            Left = 356,
             Top = 8,
-            Width = 110,
+            Width = 100,
             Height = 36,
             FlatStyle = FlatStyle.Flat,
             BackColor = Color.White,
@@ -72,87 +133,26 @@ public class RetentionPage : Panel
         };
         header.Controls.Add(_btnRefresh);
 
-        // ---- NEW: Retain Any Customer ----
-        _btnRetainAny = new Button
-        {
-            Text = "＋  Retain Any Customer",
-            Left = 340,
-            Top = 8,
-            Width = 210,
-            Height = 36,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(255, 168, 0),
-            ForeColor = Color.White,
-            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-            Cursor = Cursors.Hand
-        };
-        _btnRetainAny.FlatAppearance.BorderSize = 0;
-        _btnRetainAny.Click += async (_, _) =>
-        {
-            using var dlg = new RetainCustomerDialog(_apiUrl, _http);
-            if (dlg.ShowDialog(FindForm()) == DialogResult.OK)
-            {
-                // Reload in case anything changed
-                await LoadAsync();
-            }
-        };
-        header.Controls.Add(_btnRetainAny);
-
-        // ---- Filter label ----
-        header.Controls.Add(new Label
-        {
-            Text = "Filter:",
-            Left = 570,
-            Top = 18,
-            Width = 50,
-            Height = 20,
-            Font = new Font("Segoe UI", 9.5f),
-            ForeColor = Color.FromArgb(110, 118, 132)
-        });
-
-        _cmbFilter = new ComboBox
-        {
-            Left = 620,
-            Top = 12,
-            Width = 180,
-            Height = 28,
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Font = new Font("Segoe UI", 9.5f)
-        };
-        _cmbFilter.Items.Add("All Segments");
-        _cmbFilter.Items.AddRange(new object[]
-        {
-            "Champion", "Loyal", "Promising", "Detractor",
-            "At Risk", "Dormant", "Lost", "Active"
-        });
-        _cmbFilter.SelectedIndex = 0;
-        _cmbFilter.SelectedIndexChanged += (_, _) =>
-        {
-            _currentPage = 1;
-            ApplyFilterAndPaginate();
-        };
-        header.Controls.Add(_cmbFilter);
-
         // ---- Per page ----
         header.Controls.Add(new Label
         {
             Text = "Per page:",
-            Left = 820,
-            Top = 18,
-            Width = 70,
-            Height = 20,
-            Font = new Font("Segoe UI", 9.5f),
+            Left = 466,
+            Top = 16,
+            Width = 60,
+            Height = 24,
+            Font = new Font("Segoe UI", 9f),
             ForeColor = Color.FromArgb(110, 118, 132)
         });
 
         _cmbPageSize = new ComboBox
         {
-            Left = 895,
+            Left = 530,
             Top = 12,
-            Width = 80,
+            Width = 70,
             Height = 28,
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Font = new Font("Segoe UI", 9.5f)
+            Font = new Font("Segoe UI", 9f)
         };
         _cmbPageSize.Items.AddRange(new object[] { "10", "25", "50", "100" });
         _cmbPageSize.SelectedIndex = 0;
@@ -166,6 +166,34 @@ public class RetentionPage : Panel
             }
         };
         header.Controls.Add(_cmbPageSize);
+
+        // ---- Status message safely positioned on right side ----
+        _lblStatus = new Label
+        {
+            Text = "Loading...",
+            ForeColor = Color.FromArgb(110, 118, 132),
+            Font = new Font("Segoe UI", 9f, FontStyle.Italic),
+            AutoSize = false,
+            TextAlign = ContentAlignment.MiddleRight,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Width = 320,
+            Height = 26,
+            Location = new Point(Math.Max(485, header.ClientSize.Width - 330), 13)
+        };
+        header.Controls.Add(_lblStatus);
+        header.Resize += (_, _) => _lblStatus.Left = Math.Max(485, header.ClientSize.Width - 330);
+
+        // ---- Filter bar ----
+        _filterBar = new CrmFilterBar("Search customer, action, or basis...");
+        _filterBar.AddFilter("Segment", "Segment", "Champion", "Loyal", "Promising", "Detractor", "At Risk", "Dormant", "Lost", "Active");
+        _filterBar.AddFilter("Urgency", "Priority", "High Priority", "Medium Priority", "Low Priority");
+        _filterBar.FiltersChanged += (_, _) =>
+        {
+            _currentPage = 1;
+            ApplyFilterAndPaginate();
+        };
+        Controls.Add(_filterBar);
+        _filterBar.BringToFront();
 
         // =========================================================
         // GRID
@@ -354,11 +382,37 @@ public class RetentionPage : Panel
 
     private void ApplyFilterAndPaginate()
     {
-        var filter = _cmbFilter.SelectedItem?.ToString() ?? "All Segments";
+        var search = _filterBar.SearchText.ToLowerInvariant();
+        var segFilter = _filterBar.GetFilterValue("Segment");
+        var urgencyFilter = _filterBar.GetFilterValue("Urgency");
 
-        var filtered = filter == "All Segments"
-            ? _all
-            : _all.Where(r => GetStr(r, "segment") == filter).ToList();
+        var filtered = _all.Where(r =>
+        {
+            var seg = GetStr(r, "segment");
+            var name = GetStr(r, "fullName");
+            var basis = GetStr(r, "basis");
+            var action = GetStr(r, "recommendedAction");
+            var priority = GetInt(r, "priority");
+
+            if (segFilter != null && !seg.Equals(segFilter, StringComparison.OrdinalIgnoreCase)) return false;
+
+            if (urgencyFilter != null)
+            {
+                if (urgencyFilter.StartsWith("High") && priority > 2) return false;
+                if (urgencyFilter.StartsWith("Medium") && (priority < 3 || priority > 4)) return false;
+                if (urgencyFilter.StartsWith("Low") && priority < 5) return false;
+            }
+
+            if (!string.IsNullOrEmpty(search))
+            {
+                if (!name.ToLowerInvariant().Contains(search) &&
+                    !basis.ToLowerInvariant().Contains(search) &&
+                    !action.ToLowerInvariant().Contains(search) &&
+                    !seg.ToLowerInvariant().Contains(search))
+                    return false;
+            }
+            return true;
+        }).ToList();
 
         _filtered = filtered
             .OrderBy(r => GetInt(r, "priority"))
@@ -368,6 +422,7 @@ public class RetentionPage : Panel
         if (_currentPage > TotalPages) _currentPage = TotalPages;
         if (_currentPage < 1) _currentPage = 1;
 
+        _filterBar.SetRecordCount(_filtered.Count, _all.Count);
         RenderPage();
     }
 
@@ -396,7 +451,7 @@ public class RetentionPage : Panel
                 GetStr(r, "action"));
         }
 
-        var filter = _cmbFilter.SelectedItem?.ToString() ?? "All Segments";
+        var filter = _filterBar.GetFilterValue("Segment") ?? "All Segments";
         _lblPageInfo.Text = $"Page {_currentPage} of {TotalPages}   ·   " +
                            $"Showing {start + 1}–{end} of {_filtered.Count}";
 
@@ -405,8 +460,8 @@ public class RetentionPage : Panel
         _btnPrev.ForeColor = _btnPrev.Enabled ? Color.FromArgb(28, 32, 40) : Color.FromArgb(180, 186, 196);
         _btnNext.ForeColor = _btnNext.Enabled ? Color.FromArgb(28, 32, 40) : Color.FromArgb(180, 186, 196);
 
-        _lblStatus.Text = $"{_filtered.Count} customer{(_filtered.Count == 1 ? "" : "s")}   ·   Filter: {filter}";
-        _lblStatus.ForeColor = Color.FromArgb(110, 118, 132);
+        _filterBar.SetRecordCount(_filtered.Count, _all.Count);
+        _lblStatus.Text = "";
     }
 
     // =========================================================

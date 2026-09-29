@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace CRM_DesignServices.winforms;
@@ -134,7 +134,7 @@ public class RetainCustomerDialog : Form
         // =========================================================
         Controls.Add(new Label
         {
-            Text = "Offer Type",
+            Text = "Offer / Promotion",
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(70, 78, 92),
             AutoSize = true,
@@ -145,18 +145,13 @@ public class RetainCustomerDialog : Form
         {
             Left = 24,
             Top = 430,
-            Width = 200,
+            Width = 260,
             Height = 30,
             DropDownStyle = ComboBoxStyle.DropDownList,
+            DropDownWidth = 380,
             Font = new Font("Segoe UI", 9.5f)
         };
-        _cmbOfferType.Items.AddRange(new object[]
-        {
-            "% Discount",
-            "₱ Fixed Amount",
-            "Free Service",
-            "Custom"
-        });
+        _cmbOfferType.Items.Add(new PromotionOfferItem { Name = "Loading promotions..." });
         _cmbOfferType.SelectedIndex = 0;
         _cmbOfferType.SelectedIndexChanged += (_, _) => UpdateValueField();
         Controls.Add(_cmbOfferType);
@@ -167,14 +162,14 @@ public class RetainCustomerDialog : Form
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(70, 78, 92),
             AutoSize = true,
-            Location = new Point(240, 408)
+            Location = new Point(296, 408)
         });
 
         _txtOfferValue = new TextBox
         {
-            Left = 240,
+            Left = 296,
             Top = 430,
-            Width = 130,
+            Width = 80,
             Height = 30,
             Font = new Font("Segoe UI", 10f),
             BorderStyle = BorderStyle.FixedSingle,
@@ -188,14 +183,14 @@ public class RetainCustomerDialog : Form
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(70, 78, 92),
             AutoSize = true,
-            Location = new Point(384, 408)
+            Location = new Point(388, 408)
         });
 
         _txtOfferDescription = new TextBox
         {
-            Left = 384,
+            Left = 388,
             Top = 430,
-            Width = 300,
+            Width = 296,
             Height = 30,
             Font = new Font("Segoe UI", 9.5f),
             BorderStyle = BorderStyle.FixedSingle,
@@ -281,7 +276,89 @@ public class RetainCustomerDialog : Form
         ClientSize = new Size(708, 660);
 
         // Initial load
-        Load += async (_, _) => await LoadCustomersAsync();
+        Load += async (_, _) =>
+        {
+            await Task.WhenAll(LoadCustomersAsync(), LoadPromotionsAsync());
+        };
+    }
+
+    private async Task LoadPromotionsAsync()
+    {
+        try
+        {
+            var url = $"{_apiUrl}/tenant/{Session.CompanyId}/promotions?activeOnly=true";
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+
+            using var res = await _http.SendAsync(req);
+            if (!res.IsSuccessStatusCode)
+            {
+                PopulateFallbackOffers();
+                return;
+            }
+
+            var json = await res.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+
+            _cmbOfferType.BeginUpdate();
+            _cmbOfferType.Items.Clear();
+
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var elem in doc.RootElement.EnumerateArray())
+                {
+                    var promoId = elem.TryGetProperty("promotionId", out var idProp) ? idProp.GetInt32() : 0;
+                    var name = elem.TryGetProperty("name", out var nProp) ? nProp.GetString() ?? "" : "";
+                    var code = elem.TryGetProperty("code", out var cProp) ? cProp.GetString() ?? "" : "";
+                    var desc = elem.TryGetProperty("description", out var dProp) ? dProp.GetString() ?? "" : "";
+                    var offerType = elem.TryGetProperty("offerType", out var tProp) ? tProp.GetString() ?? "Percentage" : "Percentage";
+                    decimal? offerVal = elem.TryGetProperty("offerValue", out var vProp) && vProp.ValueKind == JsonValueKind.Number ? vProp.GetDecimal() : null;
+                    var targetSeg = elem.TryGetProperty("targetSegment", out var sProp) ? sProp.GetString() ?? "Any" : "Any";
+
+                    var item = new PromotionOfferItem
+                    {
+                        PromotionId = promoId,
+                        Name = name,
+                        Code = code,
+                        Description = desc,
+                        OfferType = offerType,
+                        OfferValue = offerVal,
+                        TargetSegment = targetSeg
+                    };
+
+                    _cmbOfferType.Items.Add(item);
+                }
+            }
+
+            // Always provide custom fallbacks
+            _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — % Discount", OfferType = "Percentage", OfferValue = 10 });
+            _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — ₱ Fixed Amount", OfferType = "FixedAmount", OfferValue = 500 });
+            _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — Free Service", OfferType = "FreeService", OfferValue = 0 });
+            _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — Other", OfferType = "Custom", OfferValue = null });
+
+            if (_cmbOfferType.Items.Count > 0)
+                _cmbOfferType.SelectedIndex = 0;
+
+            _cmbOfferType.EndUpdate();
+            UpdateValueField();
+        }
+        catch
+        {
+            PopulateFallbackOffers();
+        }
+    }
+
+    private void PopulateFallbackOffers()
+    {
+        _cmbOfferType.BeginUpdate();
+        _cmbOfferType.Items.Clear();
+        _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — % Discount", OfferType = "Percentage", OfferValue = 10 });
+        _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — ₱ Fixed Amount", OfferType = "FixedAmount", OfferValue = 500 });
+        _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — Free Service", OfferType = "FreeService", OfferValue = 0 });
+        _cmbOfferType.Items.Add(new PromotionOfferItem { PromotionId = null, Name = "Custom — Other", OfferType = "Custom" });
+        _cmbOfferType.SelectedIndex = 0;
+        _cmbOfferType.EndUpdate();
+        UpdateValueField();
     }
 
     // =========================================================
@@ -384,16 +461,46 @@ public class RetainCustomerDialog : Form
         _lblSelected.Text = $"Selected: {name}  ·  {segment}  ·  " +
                            $"₱{GetDecimal(_selectedCustomer.Value, "totalRevenue"):N0} lifetime";
         _lblSelected.ForeColor = Color.FromArgb(28, 32, 40);
+
+        // Auto-select matching promotion if available
+        if (!string.IsNullOrWhiteSpace(segment))
+        {
+            foreach (var obj in _cmbOfferType.Items)
+            {
+                if (obj is PromotionOfferItem p && p.PromotionId != null)
+                {
+                    if (string.Equals(p.TargetSegment, segment, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _cmbOfferType.SelectedItem = p;
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     private void UpdateValueField()
     {
-        var type = _cmbOfferType.SelectedItem?.ToString() ?? "";
-        _txtOfferValue.Enabled = type == "% Discount" || type == "₱ Fixed Amount";
+        if (_cmbOfferType.SelectedItem is not PromotionOfferItem item)
+            return;
 
-        if (type == "Free Service")
+        if (item.PromotionId != null)
         {
-            _txtOfferValue.Text = "0";
+            _txtOfferValue.Text = item.OfferValue.HasValue ? item.OfferValue.Value.ToString("0.##") : "";
+            _txtOfferValue.Enabled = false;
+            _txtOfferDescription.Text = !string.IsNullOrWhiteSpace(item.Description)
+                ? item.Description
+                : (!string.IsNullOrEmpty(item.Code) ? $"{item.Name} ({item.Code})" : item.Name);
+        }
+        else
+        {
+            _txtOfferValue.Enabled = item.OfferType == "Percentage" || item.OfferType == "FixedAmount";
+            if (item.OfferType == "FreeService")
+                _txtOfferValue.Text = "0";
+            else if (string.IsNullOrWhiteSpace(_txtOfferValue.Text))
+                _txtOfferValue.Text = item.OfferValue?.ToString("0.##") ?? "10";
+
+            _txtOfferDescription.Text = "";
         }
     }
 
@@ -412,17 +519,16 @@ public class RetainCustomerDialog : Form
         var custId = GetInt(customer, "customerId");
 
         // Determine offer
-        var offerTypeLabel = _cmbOfferType.SelectedItem?.ToString() ?? "% Discount";
-        var offerType = offerTypeLabel switch
-        {
-            "% Discount" => "Percentage",
-            "₱ Fixed Amount" => "FixedAmount",
-            "Free Service" => "FreeService",
-            _ => "Custom"
-        };
+        var selectedPromo = _cmbOfferType.SelectedItem as PromotionOfferItem;
+        var offerType = selectedPromo?.OfferType ?? "Percentage";
+        int? promotionId = selectedPromo?.PromotionId;
 
         decimal? offerValue = null;
-        if (_txtOfferValue.Enabled && decimal.TryParse(_txtOfferValue.Text, out var v))
+        if (selectedPromo?.PromotionId != null)
+        {
+            offerValue = selectedPromo.OfferValue;
+        }
+        else if (_txtOfferValue.Enabled && decimal.TryParse(_txtOfferValue.Text, out var v))
         {
             offerValue = v;
         }
@@ -430,13 +536,22 @@ public class RetainCustomerDialog : Form
         var offerDescription = _txtOfferDescription.Text.Trim();
         if (string.IsNullOrWhiteSpace(offerDescription))
         {
-            offerDescription = offerType switch
+            if (selectedPromo?.PromotionId != null)
             {
-                "Percentage" => $"{offerValue}% discount",
-                "FixedAmount" => $"₱{offerValue:N0} discount",
-                "FreeService" => "Free consultation",
-                _ => "Custom offer"
-            };
+                offerDescription = !string.IsNullOrEmpty(selectedPromo.Code)
+                    ? $"{selectedPromo.Name} ({selectedPromo.Code})"
+                    : selectedPromo.Name;
+            }
+            else if (offerValue.HasValue)
+            {
+                offerDescription = offerType switch
+                {
+                    "Percentage" => $"{offerValue}% discount",
+                    "FixedAmount" => $"₱{offerValue:N0} discount",
+                    "FreeService" => "Free consultation",
+                    _ => "Custom offer"
+                };
+            }
         }
 
         var customerName = GetStr(customer, "fullName");
@@ -470,6 +585,7 @@ public class RetainCustomerDialog : Form
                 offerType = offerType,
                 offerValue = offerValue,
                 offerDescription = offerDescription,
+                promotionId = promotionId,
                 notes = _txtNotes.Text.Trim(),
                 source = "Manual"
             };

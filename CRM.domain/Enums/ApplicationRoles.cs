@@ -1,4 +1,4 @@
-﻿namespace CRM.domain.Enums;
+namespace CRM.domain.Enums;
 
 public static class ApplicationRoles
 {
@@ -18,6 +18,24 @@ public static class ApplicationRoles
     public static readonly string[] CanManageUsers =
     {
         SuperAdmin, Admin, Manager
+    };
+
+    /// <summary>
+    /// Roles that a Super Admin can create/edit/delete for a company.
+    /// Super Admin ONLY manages Admin accounts of the company.
+    /// </summary>
+    public static readonly string[] SuperAdminCanTouch =
+    {
+        Admin
+    };
+
+    /// <summary>
+    /// Roles that an Admin in the company can create/edit/delete.
+    /// Company Admin manages user accounts: Manager and Staff.
+    /// </summary>
+    public static readonly string[] AdminCanTouch =
+    {
+        Manager, Staff
     };
 
     /// <summary>

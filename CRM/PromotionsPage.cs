@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace CRM_DesignServices.winforms;
@@ -15,7 +15,7 @@ public class PromotionsPage : Panel
     private Button _btnEdit = null!;
     private Button _btnToggle = null!;
     private Button _btnDelete = null!;
-    private CheckBox _chkActiveOnly = null!;
+    private CrmFilterBar _filterBar = null!;
 
     private List<JsonElement> _all = new();
     private List<JsonElement> _filtered = new();
@@ -39,53 +39,64 @@ public class PromotionsPage : Panel
         var header = new Panel { Dock = DockStyle.Top, Height = 60 };
         Controls.Add(header);
 
+        // ---- Status message safely positioned on right side ----
         _lblStatus = new Label
         {
             Text = "Loading promotions...",
             ForeColor = Color.FromArgb(110, 118, 132),
-            Font = new Font("Segoe UI", 10f),
-            AutoSize = true,
-            Location = new Point(0, 18)
+            Font = new Font("Segoe UI", 9f, FontStyle.Italic),
+            AutoSize = false,
+            TextAlign = ContentAlignment.MiddleRight,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            Width = 320,
+            Height = 26,
+            Location = new Point(Math.Max(615, header.ClientSize.Width - 330), 13)
         };
         header.Controls.Add(_lblStatus);
+        header.Resize += (_, _) => _lblStatus.Left = Math.Max(615, header.ClientSize.Width - 330);
 
-        _btnNew = MakeButton("＋  New Promotion", 180, true);
-        _btnNew.Left = 250;
+        int pLeft = 0;
+        _btnNew = MakeButton(CompanyTerminology.BtnNewPromotion, 180, true);
+        _btnNew.Left = pLeft;
         _btnNew.Click += async (_, _) => await OpenNewDialogAsync();
         header.Controls.Add(_btnNew);
+        pLeft += _btnNew.Width + 8;
 
-        _btnRefresh = MakeButton("↻  Refresh", 110, false);
-        _btnRefresh.Left = 440;
+        _btnRefresh = MakeButton("↻  Refresh", 100, false);
+        _btnRefresh.Left = pLeft;
         _btnRefresh.Click += async (_, _) => await LoadAsync();
         header.Controls.Add(_btnRefresh);
+        pLeft += _btnRefresh.Width + 8;
 
-        _btnEdit = MakeButton("✎  Edit", 90, false);
-        _btnEdit.Left = 558;
+        _btnEdit = MakeButton("✎  Edit", 85, false);
+        _btnEdit.Left = pLeft;
         _btnEdit.Click += async (_, _) => await OpenEditDialogAsync();
         header.Controls.Add(_btnEdit);
+        pLeft += _btnEdit.Width + 8;
 
-        _btnToggle = MakeButton("⏻  Toggle", 100, false);
-        _btnToggle.Left = 656;
+        _btnToggle = MakeButton("⏻  Toggle", 95, false);
+        _btnToggle.Left = pLeft;
         _btnToggle.Click += async (_, _) => await ToggleSelectedAsync();
         header.Controls.Add(_btnToggle);
+        pLeft += _btnToggle.Width + 8;
 
-        _btnDelete = MakeButton("🗑  Delete", 110, false);
-        _btnDelete.Left = 764;
-        _btnToggle.Width = 100;
+        _btnDelete = MakeButton("🗑  Delete", 95, false);
+        _btnDelete.Left = pLeft;
         _btnDelete.Click += async (_, _) => await DeleteSelectedAsync();
         header.Controls.Add(_btnDelete);
 
-        _chkActiveOnly = new CheckBox
+        // ---- Filter bar ----
+        _filterBar = new CrmFilterBar("Search promotion name, code, offer...");
+        _filterBar.AddFilter("Type", "Type", "Percentage", "FixedAmount", "FreeService");
+        _filterBar.AddFilter("Target", "Target", "All Clients", "Champion", "Loyal", "Promising", "Detractor", "At Risk", "Dormant");
+        _filterBar.AddFilter("Status", "Status", "Active", "Inactive");
+        _filterBar.FiltersChanged += (_, _) =>
         {
-            Left = 900,
-            Top = 18,
-            Width = 130,
-            Height = 24,
-            Text = "Active only",
-            Font = new Font("Segoe UI", 9.5f)
+            _currentPage = 1;
+            ApplyFilterAndRender();
         };
-        _chkActiveOnly.CheckedChanged += async (_, _) => await LoadAsync();
-        header.Controls.Add(_chkActiveOnly);
+        Controls.Add(_filterBar);
+        _filterBar.BringToFront();
 
         // ---- GRID ----
         _grid = new DataGridView
@@ -220,7 +231,6 @@ public class PromotionsPage : Panel
         try
         {
             var url = $"{_apiUrl}/tenant/{Session.CompanyId}/promotions";
-            if (_chkActiveOnly.Checked) url += "?activeOnly=true";
 
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
@@ -236,16 +246,61 @@ public class PromotionsPage : Panel
 
             using var doc = JsonDocument.Parse(json);
             _all = doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList();
-            _filtered = _all.ToList();
 
             _currentPage = 1;
-            RenderPage();
+            ApplyFilterAndRender();
         }
         catch (Exception ex)
         {
             _lblStatus.Text = "Error: " + ex.Message;
             _lblStatus.ForeColor = Color.FromArgb(200, 55, 55);
         }
+    }
+
+    private void ApplyFilterAndRender()
+    {
+        var search = _filterBar.SearchText.ToLowerInvariant();
+        var typeFilter = _filterBar.GetFilterValue("Type");
+        var targetFilter = _filterBar.GetFilterValue("Target");
+        var statusFilter = _filterBar.GetFilterValue("Status");
+
+        _filtered = _all.Where(p =>
+        {
+            var name = GetStr(p, "name");
+            var code = GetStr(p, "code");
+            var offerType = GetStr(p, "offerType");
+            var target = GetStr(p, "targetSegment");
+            var isActive = GetBool(p, "isActive");
+
+            if (typeFilter != null && !offerType.Equals(typeFilter, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (targetFilter != null && !target.Equals(targetFilter, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (statusFilter != null)
+            {
+                if (statusFilter.Equals("Active", StringComparison.OrdinalIgnoreCase) && !isActive) return false;
+                if (statusFilter.Equals("Inactive", StringComparison.OrdinalIgnoreCase) && isActive) return false;
+            }
+
+            if (!string.IsNullOrEmpty(search))
+            {
+                if (!name.ToLowerInvariant().Contains(search) &&
+                    !code.ToLowerInvariant().Contains(search) &&
+                    !target.ToLowerInvariant().Contains(search) &&
+                    !offerType.ToLowerInvariant().Contains(search))
+                    return false;
+            }
+
+            return true;
+        }).ToList();
+
+        if (_currentPage > TotalPages) _currentPage = TotalPages;
+        if (_currentPage < 1) _currentPage = 1;
+
+        _filterBar.SetRecordCount(_filtered.Count, _all.Count);
+        RenderPage();
     }
 
     private void RenderPage()
@@ -304,8 +359,8 @@ public class PromotionsPage : Panel
         _btnPrev.ForeColor = _btnPrev.Enabled ? Color.FromArgb(28, 32, 40) : Color.FromArgb(180, 186, 196);
         _btnNext.ForeColor = _btnNext.Enabled ? Color.FromArgb(28, 32, 40) : Color.FromArgb(180, 186, 196);
 
-        _lblStatus.Text = $"{_filtered.Count} promotion{(_filtered.Count == 1 ? "" : "s")}";
-        _lblStatus.ForeColor = Color.FromArgb(110, 118, 132);
+        _filterBar.SetRecordCount(_filtered.Count, _all.Count);
+        _lblStatus.Text = "";
     }
 
     private JsonElement? GetSelected()

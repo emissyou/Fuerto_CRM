@@ -1,171 +1,68 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 namespace CRM_DesignServices.winforms;
 
-public class NewUserDialog : Form
+public class NewUserDialog : CrmModalDialog
 {
     private readonly string _apiUrl;
     private readonly HttpClient _http;
 
-    private TextBox _txtEmail = null!;
-    private TextBox _txtPassword = null!;
-    private TextBox _txtFullName = null!;
-    private ComboBox _cmbRole = null!;
-    private Label _lblStatus = null!;
-    private Button _btnCreate = null!;
+    private readonly TextBox _txtEmail;
+    private readonly TextBox _txtPassword;
+    private readonly TextBox _txtFullName;
+    private readonly ComboBox _cmbRole;
 
     public NewUserDialog(string apiUrl, HttpClient http)
+        : base(
+            title: (Session.Roles?.Contains("Super Admin") ?? false) ? "Create Company Admin" : "Create New User",
+            subtitle: "Register credentials, assign roles, and grant permissions for this team account.",
+            actionText: (Session.Roles?.Contains("Super Admin") ?? false) ? "Create Admin" : "Create User",
+            iconSymbol: "👤",
+            dialogWidth: 540)
     {
         _apiUrl = apiUrl;
         _http = http;
 
-        Text = "Create New User";
-        Size = new Size(520, 500);
-        StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        BackColor = Color.White;
-
-        Controls.Add(new Label
-        {
-            Text = "Create New User",
-            Font = new Font("Segoe UI", 14f, FontStyle.Bold),
-            ForeColor = Color.FromArgb(28, 32, 40),
-            AutoSize = true,
-            Location = new Point(24, 20)
-        });
-
-        int y = 60;
-
-        AddLabel("Full Name");
-        _txtFullName = AddText(y); y += 46;
-        AddLabel("Email");
-        _txtEmail = AddText(y); y += 46;
-        AddLabel("Password (min 6 characters)");
-        _txtPassword = new TextBox
-        {
-            Left = 24,
-            Top = y,
-            Width = 460,
-            Height = 28,
-            Font = new Font("Segoe UI", 9.5f),
-            BorderStyle = BorderStyle.FixedSingle,
-            UseSystemPasswordChar = true
-        };
-        Controls.Add(_txtPassword);
-        y += 46;
-
-        AddLabel("Role");
-        _cmbRole = new ComboBox
-        {
-            Left = 24,
-            Top = y,
-            Width = 460,
-            Height = 28,
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Font = new Font("Segoe UI", 9.5f)
-        };
-        // Manager can only assign Staff/Designer
-        // Admin can assign Manager/Staff/Designer
         var roles = Session.Roles ?? new List<string>();
-        if (roles.Contains("Super Admin") || roles.Contains("Admin"))
-            _cmbRole.Items.AddRange(new object[] { "Manager", "Staff", "Designer" });
-        else
-            _cmbRole.Items.AddRange(new object[] { "Staff", "Designer" });
+        bool isSuperAdmin = roles.Contains("Super Admin");
+        bool isAdmin = roles.Contains("Admin");
 
-        _cmbRole.SelectedIndex = 0;
-        Controls.Add(_cmbRole);
-        y += 60;
+        AddTwoTextFields(
+            "Full Name *", "e.g. Jane Doe", out _txtFullName,
+            "Email Address *", "name@company.com", out _txtEmail,
+            req1: true, req2: true);
 
-        _lblStatus = new Label
-        {
-            Left = 24,
-            Top = y,
-            Width = 460,
-            Height = 20,
-            Font = new Font("Segoe UI", 8.5f, FontStyle.Italic),
-            ForeColor = Color.FromArgb(110, 118, 132),
-            Text = ""
-        };
-        Controls.Add(_lblStatus);
-        y += 26;
+        _txtPassword = AddTextField("Temporary Password (min. 6 characters) *", "••••••••", required: true);
+        _txtPassword.UseSystemPasswordChar = true;
 
-        _btnCreate = new Button
-        {
-            Text = "Create User",
-            Left = 340,
-            Top = y,
-            Width = 144,
-            Height = 38,
-            BackColor = Color.FromArgb(255, 168, 0),
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-            Cursor = Cursors.Hand
-        };
-        _btnCreate.FlatAppearance.BorderSize = 0;
-        _btnCreate.Click += async (_, _) => await CreateAsync();
-        Controls.Add(_btnCreate);
+        var availableRoles = isSuperAdmin ? new object[] { "Admin" }
+                           : isAdmin ? new object[] { "Manager", "Staff" }
+                           : new object[] { "Staff" };
 
-        var btnCancel = new Button
-        {
-            Text = "Cancel",
-            Left = 240,
-            Top = y,
-            Width = 90,
-            Height = 38,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9.5f),
-            Cursor = Cursors.Hand,
-            DialogResult = DialogResult.Cancel
-        };
-        btnCancel.FlatAppearance.BorderColor = Color.FromArgb(226, 230, 236);
-        Controls.Add(btnCancel);
+        _cmbRole = AddDropdownField("Account Role *", availableRoles, required: true);
 
-        ClientSize = new Size(508, y + 60);
-    }
-
-    private void AddLabel(string text)
-    {
-        int y = Controls.OfType<TextBox>().Select(t => t.Bottom).DefaultIfEmpty(56).Max() + 6;
-        var lastCtrl = Controls.OfType<Control>().LastOrDefault();
-        if (lastCtrl != null) y = lastCtrl.Bottom + 8;
-
-        Controls.Add(new Label
-        {
-            Text = text,
-            Left = 24,
-            Top = y,
-            Width = 460,
-            Height = 20,
-            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-            ForeColor = Color.FromArgb(70, 78, 92)
-        });
-    }
-
-    private TextBox AddText(int y)
-    {
-        var t = new TextBox
-        {
-            Left = 24,
-            Top = y,
-            Width = 460,
-            Height = 28,
-            Font = new Font("Segoe UI", 9.5f),
-            BorderStyle = BorderStyle.FixedSingle
-        };
-        Controls.Add(t);
-        return t;
+        SubmitButton.Click += async (_, _) => await CreateAsync();
     }
 
     private async Task CreateAsync()
     {
-        _btnCreate.Enabled = false;
-        _btnCreate.Text = "Creating...";
-        _lblStatus.Text = "Sending request...";
-        _lblStatus.ForeColor = Color.FromArgb(110, 118, 132);
+        if (string.IsNullOrWhiteSpace(_txtFullName.Text) || string.IsNullOrWhiteSpace(_txtEmail.Text))
+        {
+            MessageBox.Show("Full Name and Email Address are required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            DialogResult = DialogResult.None;
+            return;
+        }
+
+        if (_txtPassword.Text.Length < 6)
+        {
+            MessageBox.Show("Password must be at least 6 characters long.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            DialogResult = DialogResult.None;
+            return;
+        }
+
+        SubmitButton.Enabled = false;
+        SubmitButton.Text = "Creating...";
 
         try
         {
@@ -201,19 +98,15 @@ public class NewUserDialog : Form
                 throw new HttpRequestException(msg);
             }
 
-            _lblStatus.Text = "✓ User created.";
-            _lblStatus.ForeColor = Color.FromArgb(34, 140, 78);
-            await Task.Delay(600);
-
             DialogResult = DialogResult.OK;
             Close();
         }
         catch (Exception ex)
         {
-            _lblStatus.Text = "✗ " + ex.Message;
-            _lblStatus.ForeColor = Color.FromArgb(200, 55, 55);
-            _btnCreate.Enabled = true;
-            _btnCreate.Text = "Create User";
+            MessageBox.Show("Error creating account: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            SubmitButton.Enabled = true;
+            SubmitButton.Text = "Create User";
+            DialogResult = DialogResult.None;
         }
     }
 }

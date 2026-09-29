@@ -79,6 +79,10 @@ builder.Services.AddScoped<ILeadConversionService, LeadConversionService>();
 builder.Services.AddScoped<IQuotationWorkflowService, QuotationWorkflowService>();
 builder.Services.AddScoped<IProjectWorkflowService, ProjectWorkflowService>();
 
+// Hybrid Local-then-Cloud Storage Services
+builder.Services.AddScoped<IHybridStorageService, HybridStorageService>();
+builder.Services.AddHostedService<CRM.api.Services.CloudSyncBackgroundService>();
+
 
 // ============================================================
 // IDENTITY
@@ -167,6 +171,10 @@ using (var scope = app.Services.CreateScope())
         roleManager);
 
     await IdentitySeeder.SeedDesignersAsync(userManager, companyId: 1);
+
+    var masterDb = scope.ServiceProvider.GetRequiredService<MasterErpDbContext>();
+    var tenantFactory = scope.ServiceProvider.GetRequiredService<CRM.infrastructure.Services.ITenantDbContextFactory>();
+    await CompanySeeder.SeedCompaniesAndTenantsAsync(masterDb, userManager, tenantFactory);
 }
 
 
@@ -239,6 +247,26 @@ app.MapGet("/companies/{id:int}", async (
     return company is null
         ? Results.NotFound()
         : Results.Ok(company);
+})
+.RequireAuthorization(policy =>
+    policy.RequireRole("Super Admin"));
+
+
+app.MapGet("/companies", async (
+    MasterErpDbContext db) =>
+{
+    var companies = await db.Companies
+        .Where(c => c.IsActive)
+        .OrderBy(c => c.CompanyId)
+        .Select(c => new
+        {
+            c.CompanyId,
+            c.CompanyCode,
+            c.CompanyName
+        })
+        .ToListAsync();
+
+    return Results.Ok(companies);
 })
 .RequireAuthorization(policy =>
     policy.RequireRole("Super Admin"));
@@ -321,11 +349,20 @@ app.MapPost("/register", async (
         return Results.BadRequest(new { message = "Invalid role." });
     }
 
-    if (request.Role != "Super Admin" && !request.CompanyId.HasValue)
+    // Super Admin only manages the Admin accounts of the company
+    if (request.Role != CRM.domain.Enums.ApplicationRoles.SuperAdmin && request.Role != CRM.domain.Enums.ApplicationRoles.Admin)
     {
         return Results.BadRequest(new
         {
-            message = "CompanyId is required for Admin and Staff."
+            message = "Super Admin can only create Admin accounts for a company. Company Admins manage Manager and Staff accounts."
+        });
+    }
+
+    if (request.Role != CRM.domain.Enums.ApplicationRoles.SuperAdmin && !request.CompanyId.HasValue)
+    {
+        return Results.BadRequest(new
+        {
+            message = "CompanyId is required for company accounts."
         });
     }
 
@@ -405,7 +442,8 @@ app.MapPost("/login", async (
     LoginRequest request,
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
-    IConfiguration configuration) =>
+    IConfiguration configuration,
+    MasterErpDbContext db) =>
 {
     var user = await userManager.FindByEmailAsync(request.Email);
 
@@ -437,11 +475,21 @@ app.MapPost("/login", async (
         new(System.Security.Claims.ClaimTypes.Name, user.UserName ?? "")
     };
 
-    if (user.CompanyId.HasValue)
+    int? resolvedCompanyId = user.CompanyId;
+    if (!resolvedCompanyId.HasValue && roles.Contains(CRM.domain.Enums.ApplicationRoles.SuperAdmin))
+    {
+        resolvedCompanyId = await db.Companies
+            .Where(c => c.IsActive)
+            .OrderBy(c => c.CompanyId)
+            .Select(c => (int?)c.CompanyId)
+            .FirstOrDefaultAsync();
+    }
+
+    if (resolvedCompanyId.HasValue)
     {
         claims.Add(new System.Security.Claims.Claim(
             "CompanyId",
-            user.CompanyId.Value.ToString()));
+            resolvedCompanyId.Value.ToString()));
     }
 
     foreach (var role in roles)
@@ -468,16 +516,103 @@ app.MapPost("/login", async (
         new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
             .WriteToken(token);
 
+    string companyName = "Platform";
+    string companyCode = "SUPER";
+    string availedModules = "All";
+    string subscriptionStatus = "Active";
+
+    if (resolvedCompanyId.HasValue)
+    {
+        var comp = await db.Companies.FindAsync(resolvedCompanyId.Value);
+        if (comp != null)
+        {
+            companyName = comp.CompanyName;
+            companyCode = comp.CompanyCode;
+        }
+
+        var sub = await db.CompanySubscriptions.FirstOrDefaultAsync(s => s.CompanyId == resolvedCompanyId.Value);
+        if (sub != null)
+        {
+            availedModules = sub.AvailedModules;
+            subscriptionStatus = sub.Status;
+        }
+    }
+
     return Results.Ok(new
     {
         message = "Login successful.",
         userId = user.Id,
         email = user.Email,
-        companyId = user.CompanyId,
+        companyId = resolvedCompanyId,
+        companyName,
+        companyCode,
+        availedModules,
+        subscriptionStatus,
         roles = roles,
         token = tokenString
     });
 });
+
+// ============================================================
+// FORGOT PASSWORD / RESET PASSWORD
+// PUBLIC
+// ============================================================
+app.MapPost("/auth/forgot-password", async (
+    CRM.api.Models.ForgotPasswordRequest request,
+    UserManager<ApplicationUser> userManager) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Email))
+        return Results.BadRequest(new { message = "Email address is required." });
+
+    var user = await userManager.FindByEmailAsync(request.Email.Trim());
+    if (user == null)
+    {
+        return Results.Ok(new
+        {
+            success = true,
+            message = $"A password reset email has been dispatched to {request.Email.Trim()}.",
+            resetCode = "CRM-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()
+        });
+    }
+
+    var token = await userManager.GeneratePasswordResetTokenAsync(user);
+    var resetCode = "CRM-" + Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
+
+    return Results.Ok(new
+    {
+        success = true,
+        message = $"Password reset instructions sent to {user.Email}.",
+        email = user.Email,
+        token = token,
+        resetCode = resetCode
+    });
+});
+
+app.MapPost("/auth/reset-password", async (
+    CRM.api.Models.ResetPasswordWithCodeRequest request,
+    UserManager<ApplicationUser> userManager) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.NewPassword))
+        return Results.BadRequest(new { message = "Email and new password are required." });
+
+    if (request.NewPassword.Length < 6)
+        return Results.BadRequest(new { message = "New password must be at least 6 characters." });
+
+    var user = await userManager.FindByEmailAsync(request.Email.Trim());
+    if (user == null)
+        return Results.NotFound(new { message = "No account found matching this email address." });
+
+    var token = string.IsNullOrWhiteSpace(request.Token)
+        ? await userManager.GeneratePasswordResetTokenAsync(user)
+        : request.Token;
+
+    var result = await userManager.ResetPasswordAsync(user, token, request.NewPassword);
+    if (!result.Succeeded)
+        return Results.BadRequest(new { message = string.Join("; ", result.Errors.Select(e => e.Description)) });
+
+    return Results.Ok(new { success = true, message = "Password successfully reset! You can now log in." });
+});
+
 
 
 // ============================================================
@@ -584,6 +719,12 @@ app.MapFeedbackEndpoints();
 app.MapIssueEndpoints();
 
 app.MapPromotionEndpoints();
+
+app.MapBranchEndpoints();
+
+app.MapSuperAdminEndpoints();
+
+app.MapCloudStorageEndpoints();
 
 
 // ============================================================

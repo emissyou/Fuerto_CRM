@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.domain.Entities;
 using CRM.infrastructure.Data;
 using CRM.infrastructure.Services;
@@ -595,6 +595,7 @@ public static class BiEndpoints
                 CompanyId = companyId,
                 CustomerId = customer.CustomerId,
                 ProjectId = request.ProjectId,
+                PromotionId = request.PromotionId,
                 OfferType = string.IsNullOrWhiteSpace(request.OfferType)
                     ? "Custom"
                     : request.OfferType,

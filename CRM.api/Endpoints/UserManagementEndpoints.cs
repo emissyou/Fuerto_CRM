@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.domain.DTOs;
 using CRM.domain.Entities;
 using CRM.domain.Enums;
@@ -27,7 +27,7 @@ public static class UserManagementEndpoints
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
-            if (!IsAdminOrManager(http))
+            if (!CanAccessUserManagement(http))
                 return Results.Forbid();
 
             var users = await userManager.Users
@@ -36,12 +36,25 @@ public static class UserManagementEndpoints
 
             var result = new List<object>();
 
+            bool isSuper = IsSuperAdmin(http);
+            bool isCompanyAdmin = IsCompanyAdmin(http);
+            bool isMgr = IsManager(http);
+
             foreach (var u in users)
             {
                 var roles = await userManager.GetRolesAsync(u);
                 if (roles.Contains(ApplicationRoles.SuperAdmin)) continue;
 
                 var role = roles.FirstOrDefault() ?? ApplicationRoles.Staff;
+
+                // Super Admin ONLY manages Admin accounts of the company
+                if (isSuper && role != ApplicationRoles.Admin) continue;
+
+                // Company Admin manages user accounts like Manager and Staff
+                if (isCompanyAdmin && role != ApplicationRoles.Manager && role != ApplicationRoles.Staff) continue;
+
+                // Manager manages only Staff accounts
+                if (isMgr && role != ApplicationRoles.Staff) continue;
 
                 result.Add(new
                 {
@@ -81,7 +94,7 @@ public static class UserManagementEndpoints
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
-            if (!IsAdminOrManager(http))
+            if (!CanAccessUserManagement(http))
                 return Results.Forbid();
 
             var user = await userManager.FindByIdAsync(userId);
@@ -89,6 +102,16 @@ public static class UserManagementEndpoints
                 return Results.NotFound(new { message = "User not found." });
 
             var roles = await userManager.GetRolesAsync(user);
+            var role = roles.FirstOrDefault() ?? ApplicationRoles.Staff;
+
+            if (IsSuperAdmin(http) && role != ApplicationRoles.Admin)
+                return Results.Forbid();
+
+            if (IsCompanyAdmin(http) && role != ApplicationRoles.Manager && role != ApplicationRoles.Staff)
+                return Results.Forbid();
+
+            if (IsManager(http) && role != ApplicationRoles.Staff)
+                return Results.Forbid();
 
             return Results.Ok(new
             {
@@ -96,7 +119,7 @@ public static class UserManagementEndpoints
                 email = user.Email,
                 fullName = user.FullName,
                 companyId = user.CompanyId,
-                role = roles.FirstOrDefault() ?? ApplicationRoles.Staff,
+                role,
                 isActive = !user.LockoutEnd.HasValue || user.LockoutEnd.Value <= DateTimeOffset.UtcNow
             });
         });
@@ -114,7 +137,7 @@ public static class UserManagementEndpoints
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
-            if (!IsAdminOrManager(http))
+            if (!CanAccessUserManagement(http))
                 return Results.Forbid();
 
             if (string.IsNullOrWhiteSpace(request.Email))
@@ -123,17 +146,34 @@ public static class UserManagementEndpoints
             if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 6)
                 return Results.BadRequest(new { message = "Password must be at least 6 characters." });
 
-            if (!ApplicationRoles.CanManageUsers.Contains(request.Role) &&
-                !ApplicationRoles.ManagerCanTouch.Contains(request.Role))
-            {
-                return Results.BadRequest(new { message = "Invalid role." });
-            }
+            if (string.IsNullOrWhiteSpace(request.Role))
+                return Results.BadRequest(new { message = "Role is required." });
 
-            // If acting user is a Manager (not Admin/Super), restrict target role
-            if (!IsAdmin(http) && IsManager(http))
+            // Role restrictions based on acting user
+            if (IsSuperAdmin(http))
             {
+                // Super Admin ONLY manages Admin accounts of the company
+                if (request.Role != ApplicationRoles.Admin)
+                    return Results.BadRequest(new { message = "Super Admin can only create Admin accounts for a company." });
+            }
+            else if (IsCompanyAdmin(http))
+            {
+                // Company Admin manages user accounts like Manager and Staff
+                if (request.Role == ApplicationRoles.Admin || request.Role == ApplicationRoles.SuperAdmin)
+                    return Results.BadRequest(new { message = "Company Admins cannot create Admin accounts. Admin accounts are managed by Super Admin." });
+
+                if (!ApplicationRoles.AdminCanTouch.Contains(request.Role))
+                    return Results.BadRequest(new { message = "Company Admins can only create Manager or Staff accounts." });
+            }
+            else if (IsManager(http))
+            {
+                // Manager can only create Staff accounts
                 if (!ApplicationRoles.ManagerCanTouch.Contains(request.Role))
                     return Results.BadRequest(new { message = "Managers can only create Staff accounts." });
+            }
+            else
+            {
+                return Results.Forbid();
             }
 
             var existing = await userManager.FindByEmailAsync(request.Email);
@@ -145,10 +185,10 @@ public static class UserManagementEndpoints
 
             var user = new ApplicationUser
             {
-                UserName = request.Email,
-                Email = request.Email,
+                UserName = request.Email.Trim(),
+                Email = request.Email.Trim(),
                 EmailConfirmed = true,
-                FullName = string.IsNullOrWhiteSpace(request.FullName) ? request.Email : request.FullName.Trim(),
+                FullName = string.IsNullOrWhiteSpace(request.FullName) ? request.Email.Trim() : request.FullName.Trim(),
                 CompanyId = companyId
             };
 
@@ -189,7 +229,7 @@ public static class UserManagementEndpoints
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
-            if (!IsAdminOrManager(http))
+            if (!CanAccessUserManagement(http))
                 return Results.Forbid();
 
             var user = await userManager.FindByIdAsync(userId);
@@ -202,20 +242,46 @@ public static class UserManagementEndpoints
             if (targetRoles.Contains(ApplicationRoles.SuperAdmin))
                 return Results.BadRequest(new { message = "Cannot edit a Super Admin." });
 
-            // Manager restrictions
-            if (!IsAdmin(http) && IsManager(http))
-            {
-                // Manager cannot touch Admins or other Managers
-                if (targetCurrentRole == ApplicationRoles.Admin || targetCurrentRole == ApplicationRoles.Manager)
-                    return Results.BadRequest(new { message = "Managers cannot edit Admin or Manager accounts." });
+            if (string.IsNullOrWhiteSpace(request.Role))
+                return Results.BadRequest(new { message = "Role is required." });
 
-                // Manager cannot promote anyone TO Admin or Manager
+            // Role restrictions based on acting user
+            if (IsSuperAdmin(http))
+            {
+                // Super Admin ONLY manages Admin accounts of the company
+                if (targetCurrentRole != ApplicationRoles.Admin)
+                    return Results.BadRequest(new { message = "Super Admin can only manage Admin accounts." });
+
+                if (request.Role != ApplicationRoles.Admin)
+                    return Results.BadRequest(new { message = "Super Admin can only assign the Admin role." });
+            }
+            else if (IsCompanyAdmin(http))
+            {
+                // Company Admin manages user accounts like Manager and Staff
+                if (targetCurrentRole == ApplicationRoles.Admin)
+                    return Results.BadRequest(new { message = "Company Admins cannot edit Admin accounts. Admin accounts are managed by Super Admin." });
+
+                if (!ApplicationRoles.AdminCanTouch.Contains(targetCurrentRole))
+                    return Results.BadRequest(new { message = "Company Admins can only edit Manager and Staff accounts." });
+
+                if (request.Role == ApplicationRoles.Admin || request.Role == ApplicationRoles.SuperAdmin)
+                    return Results.BadRequest(new { message = "Company Admins cannot promote users to Admin. Admin accounts are managed by Super Admin." });
+
+                if (!ApplicationRoles.AdminCanTouch.Contains(request.Role))
+                    return Results.BadRequest(new { message = "Company Admins can only assign Manager or Staff roles." });
+            }
+            else if (IsManager(http))
+            {
+                if (targetCurrentRole != ApplicationRoles.Staff)
+                    return Results.BadRequest(new { message = "Managers can only edit Staff accounts." });
+
                 if (!ApplicationRoles.ManagerCanTouch.Contains(request.Role))
                     return Results.BadRequest(new { message = "Managers can only assign the Staff role." });
             }
-
-            if (string.IsNullOrWhiteSpace(request.Role))
-                return Results.BadRequest(new { message = "Role is required." });
+            else
+            {
+                return Results.Forbid();
+            }
 
             // Email change
             if (!string.Equals(user.Email, request.Email, StringComparison.OrdinalIgnoreCase))
@@ -244,13 +310,6 @@ public static class UserManagementEndpoints
             // Role change
             if (!string.Equals(targetCurrentRole, request.Role, StringComparison.OrdinalIgnoreCase))
             {
-                if (targetCurrentRole == ApplicationRoles.Admin)
-                {
-                    var adminCount = await CountAdminsAsync(companyId, userManager);
-                    if (adminCount <= 1)
-                        return Results.BadRequest(new { message = "Cannot change role: this is the last Admin in the company." });
-                }
-
                 if (!string.IsNullOrEmpty(targetCurrentRole))
                     await userManager.RemoveFromRoleAsync(user, targetCurrentRole);
 
@@ -286,7 +345,7 @@ public static class UserManagementEndpoints
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
-            if (!IsAdminOrManager(http))
+            if (!CanAccessUserManagement(http))
                 return Results.Forbid();
 
             if (string.IsNullOrWhiteSpace(request.NewPassword) || request.NewPassword.Length < 6)
@@ -300,12 +359,29 @@ public static class UserManagementEndpoints
             if (roles.Contains(ApplicationRoles.SuperAdmin))
                 return Results.BadRequest(new { message = "Cannot reset a Super Admin password." });
 
-            // Manager restrictions
-            if (!IsAdmin(http) && IsManager(http))
+            var targetRole = roles.FirstOrDefault() ?? ApplicationRoles.Staff;
+
+            if (IsSuperAdmin(http))
             {
-                var targetRole = roles.FirstOrDefault() ?? "";
-                if (targetRole == ApplicationRoles.Admin || targetRole == ApplicationRoles.Manager)
-                    return Results.BadRequest(new { message = "Managers cannot reset Admin or Manager passwords." });
+                if (targetRole != ApplicationRoles.Admin)
+                    return Results.BadRequest(new { message = "Super Admin can only reset passwords for Admin accounts." });
+            }
+            else if (IsCompanyAdmin(http))
+            {
+                if (targetRole == ApplicationRoles.Admin)
+                    return Results.BadRequest(new { message = "Company Admins cannot reset Admin passwords. Admin accounts are managed by Super Admin." });
+
+                if (!ApplicationRoles.AdminCanTouch.Contains(targetRole))
+                    return Results.BadRequest(new { message = "Company Admins can only reset passwords for Manager and Staff accounts." });
+            }
+            else if (IsManager(http))
+            {
+                if (targetRole != ApplicationRoles.Staff)
+                    return Results.BadRequest(new { message = "Managers can only reset passwords for Staff accounts." });
+            }
+            else
+            {
+                return Results.Forbid();
             }
 
             var token = await userManager.GeneratePasswordResetTokenAsync(user);
@@ -330,7 +406,7 @@ public static class UserManagementEndpoints
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
-            if (!IsAdminOrManager(http))
+            if (!CanAccessUserManagement(http))
                 return Results.Forbid();
 
             var user = await userManager.FindByIdAsync(userId);
@@ -343,24 +419,32 @@ public static class UserManagementEndpoints
                 return Results.BadRequest(new { message = "You cannot delete your own account." });
 
             var roles = await userManager.GetRolesAsync(user);
-            var targetRole = roles.FirstOrDefault() ?? ApplicationRoles.Staff;
-
             if (roles.Contains(ApplicationRoles.SuperAdmin))
                 return Results.BadRequest(new { message = "Cannot delete a Super Admin." });
 
-            // Manager restrictions
-            if (!IsAdmin(http) && IsManager(http))
-            {
-                if (targetRole == ApplicationRoles.Admin || targetRole == ApplicationRoles.Manager)
-                    return Results.BadRequest(new { message = "Managers cannot delete Admin or Manager accounts." });
-            }
+            var targetRole = roles.FirstOrDefault() ?? ApplicationRoles.Staff;
 
-            // Last-admin check
-            if (targetRole == ApplicationRoles.Admin)
+            if (IsSuperAdmin(http))
             {
-                var adminCount = await CountAdminsAsync(companyId, userManager);
-                if (adminCount <= 1)
-                    return Results.BadRequest(new { message = "Cannot delete the last Admin in the company." });
+                if (targetRole != ApplicationRoles.Admin)
+                    return Results.BadRequest(new { message = "Super Admin can only delete Admin accounts." });
+            }
+            else if (IsCompanyAdmin(http))
+            {
+                if (targetRole == ApplicationRoles.Admin)
+                    return Results.BadRequest(new { message = "Company Admins cannot delete Admin accounts. Admin accounts are managed by Super Admin." });
+
+                if (!ApplicationRoles.AdminCanTouch.Contains(targetRole))
+                    return Results.BadRequest(new { message = "Company Admins can only delete Manager and Staff accounts." });
+            }
+            else if (IsManager(http))
+            {
+                if (targetRole != ApplicationRoles.Staff)
+                    return Results.BadRequest(new { message = "Managers can only delete Staff accounts." });
+            }
+            else
+            {
+                return Results.Forbid();
             }
 
             // Staff safety check — prevent deletion if assigned to active projects
@@ -392,14 +476,17 @@ public static class UserManagementEndpoints
     // ============================================================
     // HELPERS
     // ============================================================
-    private static bool IsAdmin(HttpContext http) =>
-        http.User.IsInRole(ApplicationRoles.Admin) || http.User.IsInRole(ApplicationRoles.SuperAdmin);
+    private static bool IsSuperAdmin(HttpContext http) =>
+        http.User.IsInRole(ApplicationRoles.SuperAdmin);
+
+    private static bool IsCompanyAdmin(HttpContext http) =>
+        http.User.IsInRole(ApplicationRoles.Admin);
 
     private static bool IsManager(HttpContext http) =>  
         http.User.IsInRole(ApplicationRoles.Manager);
 
-    private static bool IsAdminOrManager(HttpContext http) =>
-        IsAdmin(http) || IsManager(http);
+    private static bool CanAccessUserManagement(HttpContext http) =>
+        IsSuperAdmin(http) || IsCompanyAdmin(http) || IsManager(http);
 
     private static int RoleRank(string role) => role switch
     {
@@ -408,10 +495,4 @@ public static class UserManagementEndpoints
         ApplicationRoles.Staff => 3,
         _ => 99
     };
-
-    private static async Task<int> CountAdminsAsync(int companyId, UserManager<ApplicationUser> userManager)
-    {
-        var admins = await userManager.GetUsersInRoleAsync(ApplicationRoles.Admin);
-        return admins.Count(u => u.CompanyId == companyId);
-    }
 }
