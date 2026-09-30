@@ -720,27 +720,44 @@ public partial class Form1 : Form
     // NAVIGATION
     // =========================================================
     /// <summary>Maps a company-specific display label back to the canonical page name.</summary>
-    private static string CanonicalPage(string displayLabel) => displayLabel switch
+    public static string CanonicalPage(string displayLabel) => displayLabel switch
     {
-        // Leo Revita Salon aliases
-        "Clients"            => "Customers",
-        "Appointments"       => "Quotations",
-        "Salon Services"     => "Projects",
-        "Follow-ups"         => "Activities",
-        "Service Complaints" => "Issues",
-        "Client Reviews"     => "Feedback",
-        "Stylists"           => "Designers",
-        "Team Accounts"      => "Users",
-        // Mister Donut aliases
-        "Loyalty Programs"   => "Retention",
-        "Product Deals"      => "Promotions",
-        "Store Performance"  => "Overview",
-        "Sales Analytics"    => "Analytics",
-        "Sales Reports"      => "Reports",
+        // Construction & Renovation (GLI Bahay Builds & Custom Crafters Davao)
+        "Project Inquiries"          => "Leads",
+        "Renovation Leads"           => "Leads",
+        "Building Estimates"         => "Quotations",
+        "Renovation Quotes"          => "Quotations",
+        "Construction Projects"      => "Projects",
+        "Renovation Projects"        => "Projects",
+        "Site Visits & Inspections"  => "Activities",
+        "Site Consultations"         => "Activities",
+        "Site Issues & Defects"      => "Issues",
+        "Rework & Punch List"        => "Issues",
+        "Site Engineers & Architects"=> "Designers",
+        "Craftsmen & Designers"      => "Designers",
+        "Retention & Accounts"       => "Retention",
+        "Packages & Promotions"      => "Promotions",
+        "Client Reviews"             => "Feedback",
+        "Clients"                    => "Customers",
+        "Team Accounts"              => "Users",
+
+        // Legacy aliases
+        "Appointments"               => "Quotations",
+        "Salon Services"             => "Projects",
+        "Follow-ups"                 => "Activities",
+        "Service Complaints"         => "Issues",
+        "Stylists"                   => "Designers",
+        "Loyalty Programs"           => "Retention",
+        "Product Deals"              => "Promotions",
+        "Store Performance"          => "Overview",
+        "Sales Analytics"            => "Analytics",
+        "Sales Reports"              => "Reports",
+
         // Super Admin aliases
-        "Company Admins"     => "Company Admins & Users",
-        "System Users"       => "Company Admins & Users",
-        "Company Accounts"   => "Admin Panel",
+        "Company Admins"             => "Company Admins & Users",
+        "System Users"               => "Company Admins & Users",
+        "Company Accounts"           => "Admin Panel",
+
         // default — already canonical
         _ => displayLabel
     };
@@ -2136,21 +2153,21 @@ public partial class Form1 : Form
             if (string.Equals(endpoint, "projects", StringComparison.OrdinalIgnoreCase))
             {
                 using var dlg = new CrmModalDialog(
-                    title: CompanyTerminology.Code == CompanyTerminology.Salon ? "Book New Service" : "Create New Project",
-                    subtitle: "Configure service timeline, linked customer account, and project details.",
-                    actionText: CompanyTerminology.Code == CompanyTerminology.Salon ? "Book Service" : "Create Project",
+                    title: CompanyTerminology.IsGilbb ? "New Construction Project" : (CompanyTerminology.IsCcdavao ? "New Renovation Project" : "Create New Project"),
+                    subtitle: "Configure project timeline, client account, and scope of work.",
+                    actionText: CompanyTerminology.IsGilbb ? "Create Construction Project" : (CompanyTerminology.IsCcdavao ? "Create Renovation Project" : "Create Project"),
                     iconSymbol: "📋",
                     dialogWidth: 580);
 
                 dlg.AddTwoTextFields(
                     "Project Code *", "e.g. PRJ-2026-001", out var txtCode,
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Service Name *" : "Project Name *",
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "e.g. Hair Spa & Keratin" : "e.g. Office Interior Renovation",
+                    CompanyTerminology.IsGilbb ? "Build / Project Name *" : (CompanyTerminology.IsCcdavao ? "Renovation Project Name *" : "Project Name *"),
+                    CompanyTerminology.IsGilbb ? "e.g. 2-Storey Modern Residential Build" : (CompanyTerminology.IsCcdavao ? "e.g. Kitchen Remodeling & Cabinetry" : "e.g. Office Interior Renovation"),
                     out var txtName, req1: true, req2: true);
 
                 var customerList = await LoadCustomerComboItemsAsync();
                 var cmbCustomer = dlg.AddSearchableDropdownField(
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Assigned Client *" : "Assigned Customer *",
+                    "Assigned Client *",
                     customerList.Cast<object>().ToArray(),
                     required: true);
 
@@ -2194,9 +2211,9 @@ public partial class Form1 : Form
             if (string.Equals(endpoint, "quotations", StringComparison.OrdinalIgnoreCase))
             {
                 using var dlg = new CrmModalDialog(
-                    title: CompanyTerminology.Code == CompanyTerminology.Salon ? "Book Appointment" : "Create Quotation",
-                    subtitle: "Generate proposal pricing, discount terms, and service scope.",
-                    actionText: CompanyTerminology.Code == CompanyTerminology.Salon ? "Book Appointment" : "Create Quotation",
+                    title: CompanyTerminology.IsGilbb ? "Create Building Estimate" : (CompanyTerminology.IsCcdavao ? "Create Renovation Quote" : "Create Quotation"),
+                    subtitle: "Generate proposal pricing, discount terms, and scope of work.",
+                    actionText: CompanyTerminology.IsGilbb ? "Create Estimate" : (CompanyTerminology.IsCcdavao ? "Create Quote" : "Create Quotation"),
                     iconSymbol: "💼",
                     dialogWidth: 580);
 
@@ -2204,9 +2221,9 @@ public partial class Form1 : Form
                 var projectList = await LoadProjectComboItemsAsync();
 
                 dlg.AddTwoDropdownFields(
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Search Client" : "Search Customer",
+                    "Search Client",
                     customerList.Cast<object>().ToArray(), out var cmbCust,
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Select Service / Project *" : "Select Linked Project *",
+                    CompanyTerminology.IsGilbb ? "Select Construction Build *" : (CompanyTerminology.IsCcdavao ? "Select Renovation Project *" : "Select Linked Project *"),
                     projectList.Cast<object>().ToArray(), out var cmbProject,
                     req2: true, isSearchable1: true, isSearchable2: true);
 
@@ -2273,9 +2290,9 @@ public partial class Form1 : Form
             if (string.Equals(endpoint, "activities", StringComparison.OrdinalIgnoreCase))
             {
                 using var dlg = new CrmModalDialog(
-                    title: CompanyTerminology.Code == CompanyTerminology.Salon ? "Schedule Follow-up" : "Log New Activity",
-                    subtitle: "Record customer meetings, consultations, calls, follow-ups, or site inspections.",
-                    actionText: CompanyTerminology.Code == CompanyTerminology.Salon ? "Save Follow-up" : "Log Activity",
+                    title: CompanyTerminology.IsGilbb ? "Log Site Inspection" : (CompanyTerminology.IsCcdavao ? "Log Site Consultation" : "Log New Activity"),
+                    subtitle: "Record client meetings, consultations, calls, follow-ups, or site inspections.",
+                    actionText: CompanyTerminology.IsGilbb ? "Save Site Inspection" : (CompanyTerminology.IsCcdavao ? "Save Consultation" : "Log Activity"),
                     iconSymbol: "⏱",
                     dialogWidth: 580);
 
@@ -2283,7 +2300,7 @@ public partial class Form1 : Form
                 var projectList = await LoadProjectComboItemsAsync();
 
                 var cmbCustomer = dlg.AddSearchableDropdownField(
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Customer / Client *" : "Customer Account *",
+                    "Customer / Client *",
                     customerList.Cast<object>().ToArray(),
                     required: true);
 
@@ -2294,7 +2311,7 @@ public partial class Form1 : Form
                 projDropdownItems.AddRange(projectList);
 
                 var cmbProject = dlg.AddSearchableDropdownField(
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Linked Service / Project (Optional)" : "Linked Project (Optional)",
+                    "Linked Project (Optional)",
                     projDropdownItems.ToArray(),
                     required: false);
 
@@ -2323,9 +2340,11 @@ public partial class Form1 : Form
                     }
                 };
 
-                var activityTypes = CompanyTerminology.Code == CompanyTerminology.Salon
-                    ? new object[] { "Appointment", "Follow-up Consultation", "Styling Session", "Customer Call", "Review", "Other" }
-                    : new object[] { "Meeting", "Call", "Site Visit", "Design Consultation", "Email", "Presentation", "Follow-up", "Other" };
+                var activityTypes = CompanyTerminology.IsGilbb
+                    ? new object[] { "Site Inspection", "Foundation Check", "Structural Review", "Client Meeting", "Subcontractor Coordination", "Other" }
+                    : (CompanyTerminology.IsCcdavao
+                        ? new object[] { "Site Consultation", "Measurement & Survey", "Design Review", "Material Selection", "Punch List Walkthrough", "Other" }
+                        : new object[] { "Meeting", "Call", "Site Visit", "Design Consultation", "Email", "Presentation", "Follow-up", "Other" });
 
                 var activityStatuses = new object[] { "Scheduled", "Completed", "In Progress", "Cancelled" };
 
@@ -2335,8 +2354,8 @@ public partial class Form1 : Form
                     req1: true, req2: true);
 
                 var txtSubject = dlg.AddTextField(
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Subject / Purpose *" : "Activity Subject *",
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "e.g. 2-Week Post Hair Treatment Check" : "e.g. Layout Review & Lighting Discussion",
+                    "Activity Subject / Purpose *",
+                    CompanyTerminology.IsGilbb ? "e.g. 2nd Floor Beam Rebar Inspection" : (CompanyTerminology.IsCcdavao ? "e.g. Kitchen Cabinetry Layout & Finish Review" : "e.g. Layout Review & Lighting Discussion"),
                     required: true);
 
                 dlg.AddDatePickerField("Activity Date & Time", out var dtActivity, "Next Follow-up Date (Optional)", out var dtFollowUp);
@@ -2376,8 +2395,8 @@ public partial class Form1 : Form
             if (string.Equals(endpoint, "issues", StringComparison.OrdinalIgnoreCase))
             {
                 using var dlg = new CrmModalDialog(
-                    title: CompanyTerminology.Code == CompanyTerminology.Salon ? "Report Service Complaint" : "Log New Project Issue",
-                    subtitle: "Record quality defects, client complaints, schedule delays, or billing disputes.",
+                    title: CompanyTerminology.IsGilbb ? "Report Site Issue / Defect" : (CompanyTerminology.IsCcdavao ? "Report Rework / Punch List Item" : "Log New Project Issue"),
+                    subtitle: "Record quality defects, site snags, schedule delays, or rework requests.",
                     actionText: "Submit Issue",
                     iconSymbol: "⚠️",
                     dialogWidth: 580);
@@ -2386,9 +2405,9 @@ public partial class Form1 : Form
                 var projectList = await LoadProjectComboItemsAsync();
 
                 dlg.AddTwoDropdownFields(
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Client Account *" : "Customer Account *",
+                    "Client Account *",
                     customerList.Cast<object>().ToArray(), out var cmbCustomer,
-                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Associated Service *" : "Associated Project *",
+                    CompanyTerminology.IsGilbb ? "Associated Construction Build *" : (CompanyTerminology.IsCcdavao ? "Associated Renovation Project *" : "Associated Project *"),
                     projectList.Cast<object>().ToArray(), out var cmbProject,
                     req1: true, req2: true, isSearchable1: true, isSearchable2: true);
 
@@ -2417,9 +2436,11 @@ public partial class Form1 : Form
                     }
                 };
 
-                var issueTypes = CompanyTerminology.Code == CompanyTerminology.Salon
-                    ? new object[] { "Complaint", "Adjustment", "ServiceRedo", "PaymentDispute", "Other" }
-                    : new object[] { "Complaint", "Adjustment", "PaymentDispute", "Rework", "Defect", "Other" };
+                var issueTypes = CompanyTerminology.IsGilbb
+                    ? new object[] { "Structural Defect", "Weather Delay", "Material Shortage", "Subcontractor Snag", "Client Change Order", "Billing Dispute", "Other" }
+                    : (CompanyTerminology.IsCcdavao
+                        ? new object[] { "Punch List Snag", "Material Discrepancy", "Measurement Adjustment", "Finish Defect", "Client Rework Request", "Billing Dispute", "Other" }
+                        : new object[] { "Complaint", "Adjustment", "PaymentDispute", "Rework", "Defect", "Other" });
 
                 var severities = new object[] { "Low", "Medium", "High", "Critical" };
 
@@ -2470,11 +2491,11 @@ public partial class Form1 : Form
             // Fallback create (Customers, Leads, Suppliers, etc.)
             string entitySingular = title switch
             {
-                "Activities" or "activities" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Follow-up" : "Activity",
-                "Issues" or "issues" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Complaint" : "Issue",
-                "Projects" or "projects" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Service" : "Project",
-                "Customers" or "customers" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Client" : "Customer",
-                "Leads" or "leads" => "Lead",
+                "Activities" or "activities" => CompanyTerminology.IsGilbb ? "Site Inspection" : (CompanyTerminology.IsCcdavao ? "Site Consultation" : "Activity"),
+                "Issues" or "issues" => CompanyTerminology.IsGilbb ? "Site Issue" : (CompanyTerminology.IsCcdavao ? "Punch List Item" : "Issue"),
+                "Projects" or "projects" => CompanyTerminology.IsGilbb ? "Construction Project" : (CompanyTerminology.IsCcdavao ? "Renovation Project" : "Project"),
+                "Customers" or "customers" => "Client",
+                "Leads" or "leads" => CompanyTerminology.IsGilbb ? "Project Inquiry" : (CompanyTerminology.IsCcdavao ? "Renovation Lead" : "Lead"),
                 "Suppliers" or "suppliers" => "Supplier",
                 _ => title.EndsWith("ies", StringComparison.OrdinalIgnoreCase) ? title[..^3] + "y" : title.TrimEnd('s')
             };
@@ -2785,11 +2806,11 @@ public partial class Form1 : Form
             // Modern SaaS Edit Dialog (Fallback for Customers, Leads, Suppliers)
             string entitySingular = title switch
             {
-                "Activities" or "activities" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Follow-up" : "Activity",
-                "Issues" or "issues" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Complaint" : "Issue",
-                "Projects" or "projects" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Service" : "Project",
-                "Customers" or "customers" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Client" : "Customer",
-                "Leads" or "leads" => "Lead",
+                "Activities" or "activities" => CompanyTerminology.IsGilbb ? "Site Inspection" : (CompanyTerminology.IsCcdavao ? "Site Consultation" : "Activity"),
+                "Issues" or "issues" => CompanyTerminology.IsGilbb ? "Site Issue" : (CompanyTerminology.IsCcdavao ? "Punch List Item" : "Issue"),
+                "Projects" or "projects" => CompanyTerminology.IsGilbb ? "Construction Project" : (CompanyTerminology.IsCcdavao ? "Renovation Project" : "Project"),
+                "Customers" or "customers" => "Client",
+                "Leads" or "leads" => CompanyTerminology.IsGilbb ? "Project Inquiry" : (CompanyTerminology.IsCcdavao ? "Renovation Lead" : "Lead"),
                 "Suppliers" or "suppliers" => "Supplier",
                 _ => title.EndsWith("ies", StringComparison.OrdinalIgnoreCase) ? title[..^3] + "y" : title.TrimEnd('s')
             };
@@ -3490,8 +3511,9 @@ public partial class Form1 : Form
     // =========================================================
     // ROLE-BASED & MODULE-BASED VISIBILITY
     // =========================================================
-    private bool CanSee(string pageName)
+    public bool CanSee(string pageName)
     {
+        pageName = CanonicalPage(pageName);
         var roles = Session.Roles ?? new List<string>();
 
         bool isSuperAdmin = roles.Contains("Super Admin") || roles.Contains("SuperAdmin");
@@ -3521,7 +3543,11 @@ public partial class Form1 : Form
         {
             if (!Session.HasModule("Business Intelligence")) return false;
         }
-        if (pageName is "Customers" or "Leads" or "Activities" or "Issues" or "Feedback")
+        if (pageName is "Customers")
+        {
+            if (!Session.HasModule("Data Collection") && !Session.HasModule("Action")) return false;
+        }
+        else if (pageName is "Leads" or "Activities" or "Issues" or "Feedback")
         {
             if (!Session.HasModule("Data Collection")) return false;
         }
@@ -3536,6 +3562,8 @@ public partial class Form1 : Form
 
         if (pageName == "Branches")
         {
+            // Only Fuerto CRM has branching; GLI Bahay Builds and Custom Crafters Davao have branches removed
+            if (CompanyTerminology.IsGilbb || CompanyTerminology.IsCcdavao) return false;
             // Branching feature for Company Admin
             return isAdmin;
         }
@@ -3589,6 +3617,25 @@ public partial class Form1 : Form
     {
         if (Session.IsSuperAdmin || !Session.CompanyId.HasValue || _cmbBranchSwitcher == null) return;
 
+        // Hide branch switcher completely for companies without branching
+        if (CompanyTerminology.IsGilbb || CompanyTerminology.IsCcdavao)
+        {
+            _pnlBranchSwitcher?.Hide();
+            return;
+        }
+
+        // If logged-in user is a Branch Manager (not Admin), lock switcher to their assigned branch
+        if (Session.CurrentBranchId.HasValue && !Session.IsAdmin)
+        {
+            _cmbBranchSwitcher.Items.Clear();
+            string bName = string.IsNullOrWhiteSpace(Session.CurrentBranchName) ? $"Branch #{Session.CurrentBranchId.Value}" : Session.CurrentBranchName;
+            _cmbBranchSwitcher.Items.Add(new BranchComboItem { Id = Session.CurrentBranchId, Name = $"📍 {bName}" });
+            _cmbBranchSwitcher.SelectedIndex = 0;
+            _cmbBranchSwitcher.Enabled = false;
+            _pnlBranchSwitcher?.Show();
+            return;
+        }
+
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, $"{ApiUrl}/tenant/{Session.CompanyId.Value}/branches");
@@ -3603,8 +3650,11 @@ public partial class Form1 : Form
                 if (branches != null && branches.Count > 0)
                 {
                     _cmbBranchSwitcher.Items.Clear();
+                    _cmbBranchSwitcher.Enabled = true;
                     _cmbBranchSwitcher.Items.Add(new BranchComboItem { Id = null, Name = "All Branches" });
 
+                    int selectedIdx = 0;
+                    int i = 1;
                     foreach (var b in branches)
                     {
                         int id = 0;
@@ -3621,9 +3671,15 @@ public partial class Form1 : Form
 
                         string displayName = isMain ? $"★ {name} (HQ)" : name;
                         _cmbBranchSwitcher.Items.Add(new BranchComboItem { Id = id, Name = displayName });
+
+                        if (Session.CurrentBranchId.HasValue && Session.CurrentBranchId.Value == id)
+                        {
+                            selectedIdx = i;
+                        }
+                        i++;
                     }
 
-                    _cmbBranchSwitcher.SelectedIndex = 0;
+                    _cmbBranchSwitcher.SelectedIndex = selectedIdx;
                     _pnlBranchSwitcher?.Show();
                 }
             }
@@ -3863,6 +3919,14 @@ public partial class Form1 : Form
             throw new InvalidOperationException("No authentication token is available.");
 
         var url = $"{ApiUrl}/tenant/{Session.CompanyId.Value}/{endpoint}";
+        if (Session.CurrentBranchId.HasValue &&
+            !endpoint.StartsWith("branches", StringComparison.OrdinalIgnoreCase) &&
+            !endpoint.StartsWith("users", StringComparison.OrdinalIgnoreCase) &&
+            !endpoint.StartsWith("terms", StringComparison.OrdinalIgnoreCase))
+        {
+            var sep = url.Contains('?') ? "&" : "?";
+            url += $"{sep}branchId={Session.CurrentBranchId.Value}";
+        }
 
         try
         {
@@ -3925,6 +3989,14 @@ public partial class Form1 : Form
             throw new InvalidOperationException("No authentication token is available.");
 
         var url = $"{ApiUrl}/tenant/{Session.CompanyId.Value}/{endpoint}";
+        if (Session.CurrentBranchId.HasValue &&
+            !endpoint.StartsWith("branches", StringComparison.OrdinalIgnoreCase) &&
+            !endpoint.StartsWith("users", StringComparison.OrdinalIgnoreCase) &&
+            !endpoint.StartsWith("terms", StringComparison.OrdinalIgnoreCase))
+        {
+            var sep = url.Contains('?') ? "&" : "?";
+            url += $"{sep}branchId={Session.CurrentBranchId.Value}";
+        }
 
         try
         {
@@ -3977,6 +4049,18 @@ public partial class Form1 : Form
     {
         int companyId = Session.CompanyId ?? 0;
         var dictBody = body as Dictionary<string, object?> ?? new Dictionary<string, object?>();
+
+        if (Session.CurrentBranchId.HasValue &&
+            !endpoint.StartsWith("branches", StringComparison.OrdinalIgnoreCase) &&
+            !endpoint.StartsWith("users", StringComparison.OrdinalIgnoreCase) &&
+            !endpoint.StartsWith("terms", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!dictBody.ContainsKey("branchId") || dictBody["branchId"] == null)
+            {
+                dictBody["branchId"] = Session.CurrentBranchId.Value;
+                body = dictBody;
+            }
+        }
 
         var summary = dictBody.TryGetValue("subject", out var s) ? s?.ToString() :
                       dictBody.TryGetValue("title", out var t) ? t?.ToString() :

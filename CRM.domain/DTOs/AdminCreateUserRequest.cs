@@ -1,4 +1,4 @@
-﻿namespace CRM.domain.DTOs;
+namespace CRM.domain.DTOs;
 
 public class AdminCreateUserRequest
 {
@@ -6,4 +6,5 @@ public class AdminCreateUserRequest
     public string Password { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
     public string Role { get; set; } = "Staff";
+    public int? BranchId { get; set; }
 }

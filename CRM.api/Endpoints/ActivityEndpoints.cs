@@ -78,6 +78,13 @@ public static class ActivityEndpoints
             // Always use the authenticated route company
             activity.CompanyId = companyId;
 
+            if (!activity.BranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    activity.BranchId = bClaimVal;
+            }
+
             activity.ActivityDate = activity.ActivityDate == default
                 ? DateTime.UtcNow
                 : activity.ActivityDate;
@@ -96,6 +103,7 @@ public static class ActivityEndpoints
         // GET ALL ACTIVITIES
         app.MapGet("/tenant/{companyId:int}/activities", async (
             int companyId,
+            int? branchId,
             HttpContext httpContext,
             ITenantDbContextFactory tenantFactory) =>
         {
@@ -104,15 +112,30 @@ public static class ActivityEndpoints
                 return Results.Forbid();
             }
 
+            int? effectiveBranchId = branchId;
+            if (!effectiveBranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    effectiveBranchId = bClaimVal;
+            }
+
             await using var db =
                 await tenantFactory.CreateAsync(companyId);
 
-            var activities = await db.Activities
+            var query = db.Activities
                 .AsNoTracking()
                 .Include(x => x.Customer)
                 .Include(x => x.Lead)
                 .Include(x => x.Project)
-                .Where(x => x.CompanyId == companyId)
+                .Where(x => x.CompanyId == companyId);
+
+            if (effectiveBranchId.HasValue)
+            {
+                query = query.Where(x => x.BranchId == effectiveBranchId.Value);
+            }
+
+            var activities = await query
                 .OrderByDescending(x => x.ActivityId)
                 .ToListAsync();
 

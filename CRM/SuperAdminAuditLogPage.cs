@@ -90,19 +90,19 @@ public class SuperAdminAuditLogPage : Panel
         var now = DateTime.Now;
         var logs = new[]
         {
-            (now.AddMinutes(-2),   "Info",     "Login",          "FUERTO",   "admin@fuerto.com",         "Successful login from 192.168.1.10"),
-            (now.AddMinutes(-5),   "Info",     "Login",          "LRSALON",  "admin@leorevita.local",    "Successful login from 192.168.1.22"),
-            (now.AddMinutes(-10),  "Info",     "Subscription",   "FUERTO",   "admin@fuerto.local",       "Subscription renewed – Enterprise Plan"),
-            (now.AddMinutes(-15),  "Warning",  "Config Change",  "MRDONUT",  "admin@misterdonut.local",  "Module configuration updated"),
-            (now.AddMinutes(-18),  "Info",     "User Created",   "LRSALON",  "admin@leorevita.local",    "New staff account created: stylist@leorevita.local"),
-            (now.AddMinutes(-30),  "Info",     "Logout",         "FUERTO",   "admin@fuerto.com",         "Session ended normally"),
-            (now.AddMinutes(-45),  "Info",     "Login",          "MRDONUT",  "admin@misterdonut.local",  "Successful login from 10.0.0.5"),
-            (now.AddHours(-1),     "Warning",  "Login",          "FUERTO",   "unknown@test.com",         "Failed login attempt – invalid credentials"),
-            (now.AddHours(-2),     "Info",     "Subscription",   "LRSALON",  "admin@fuerto.local",       "Plan upgraded from Starter to Professional"),
-            (now.AddHours(-3),     "Info",     "Config Change",  "FUERTO",   "admin@fuerto.local",       "Branch FUERTO-BGC created"),
-            (now.AddHours(-4),     "Critical", "Error",          "MRDONUT",  "system",                   "Database connection timeout – auto-recovered"),
-            (now.AddHours(-5),     "Info",     "User Deleted",   "FUERTO",   "admin@fuerto.local",       "User account deactivated: oldstaff@fuerto.com"),
-            (now.AddHours(-6),     "Info",     "Login",          "FUERTO",   "admin@fuerto.local",       "Super Admin login from 127.0.0.1"),
+            (now.AddMinutes(-2),   "Info",     "Login",          "FUERTO",   "admin@fuerto.com",                 "Successful login from 192.168.1.10"),
+            (now.AddMinutes(-5),   "Info",     "Login",          "GILBB",    "admin@glibahaybuilds.local",       "Successful login from 192.168.1.22"),
+            (now.AddMinutes(-10),  "Info",     "Subscription",   "FUERTO",   "admin@fuerto.local",               "Subscription renewed – Enterprise Plan"),
+            (now.AddMinutes(-15),  "Warning",  "Config Change",  "CCDAVAO",  "admin@customcraftersdavao.local",  "Module configuration updated"),
+            (now.AddMinutes(-18),  "Info",     "User Created",   "GILBB",    "admin@glibahaybuilds.local",       "New team account created: engineer@glibahaybuilds.local"),
+            (now.AddMinutes(-30),  "Info",     "Logout",         "FUERTO",   "admin@fuerto.com",                 "Session ended normally"),
+            (now.AddMinutes(-45),  "Info",     "Login",          "CCDAVAO",  "admin@customcraftersdavao.local",  "Successful login from 10.0.0.5"),
+            (now.AddHours(-1),     "Warning",  "Login",          "FUERTO",   "unknown@test.com",                 "Failed login attempt – invalid credentials"),
+            (now.AddHours(-2),     "Info",     "Subscription",   "GILBB",    "admin@fuerto.local",               "Plan upgraded from Starter to Professional"),
+            (now.AddHours(-3),     "Info",     "Config Change",  "FUERTO",   "admin@fuerto.local",               "Branch FUERTO-BGC created"),
+            (now.AddHours(-4),     "Critical", "Error",          "CCDAVAO",  "system",                           "Database connection timeout – auto-recovered"),
+            (now.AddHours(-5),     "Info",     "User Deleted",   "FUERTO",   "admin@fuerto.local",               "User account deactivated: oldstaff@fuerto.com"),
+            (now.AddHours(-6),     "Info",     "Login",          "FUERTO",   "admin@fuerto.local",               "Super Admin login from 127.0.0.1"),
         };
 
         _grid.Rows.Clear();

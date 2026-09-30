@@ -63,7 +63,8 @@ public static class BranchEndpoints
             int companyId,
             Branch branch,
             HttpContext httpContext,
-            ITenantDbContextFactory tenantFactory) =>
+            ITenantDbContextFactory tenantFactory,
+            Microsoft.AspNetCore.Identity.UserManager<ApplicationUser> userManager) =>
         {
             if (!TenantAuthorization.IsAuthorized(httpContext, companyId))
             {
@@ -96,6 +97,20 @@ public static class BranchEndpoints
             db.Branches.Add(branch);
             await db.SaveChangesAsync();
 
+            // Link manager if provided
+            if (!string.IsNullOrWhiteSpace(branch.ManagerUserId))
+            {
+                var mgr = await userManager.FindByIdAsync(branch.ManagerUserId);
+                if (mgr != null)
+                {
+                    mgr.BranchId = branch.BranchId;
+                    await userManager.UpdateAsync(mgr);
+                    branch.ManagerName = mgr.FullName;
+                    branch.ManagerEmail = mgr.Email;
+                    await db.SaveChangesAsync();
+                }
+            }
+
             return Results.Created($"/tenant/{companyId}/branches/{branch.BranchId}", branch);
         })
         .RequireAuthorization();
@@ -106,7 +121,8 @@ public static class BranchEndpoints
             int id,
             Branch updated,
             HttpContext httpContext,
-            ITenantDbContextFactory tenantFactory) =>
+            ITenantDbContextFactory tenantFactory,
+            Microsoft.AspNetCore.Identity.UserManager<ApplicationUser> userManager) =>
         {
             if (!TenantAuthorization.IsAuthorized(httpContext, companyId))
             {
@@ -142,6 +158,22 @@ public static class BranchEndpoints
             branch.Email = updated.Email;
             branch.IsMainBranch = updated.IsMainBranch;
             branch.IsActive = updated.IsActive;
+            branch.ManagerUserId = updated.ManagerUserId;
+            branch.ManagerName = updated.ManagerName;
+            branch.ManagerEmail = updated.ManagerEmail;
+
+            // Sync user's BranchId
+            if (!string.IsNullOrWhiteSpace(branch.ManagerUserId))
+            {
+                var mgr = await userManager.FindByIdAsync(branch.ManagerUserId);
+                if (mgr != null)
+                {
+                    mgr.BranchId = branch.BranchId;
+                    await userManager.UpdateAsync(mgr);
+                    branch.ManagerName = mgr.FullName;
+                    branch.ManagerEmail = mgr.Email;
+                }
+            }
 
             await db.SaveChangesAsync();
 
@@ -198,9 +230,33 @@ BEGIN
         [IsMainBranch] bit NOT NULL DEFAULT 0,
         [IsActive] bit NOT NULL DEFAULT 1,
         [CreatedAt] datetime2 NOT NULL DEFAULT GETUTCDATE(),
+        [ManagerUserId] nvarchar(450) NULL,
+        [ManagerName] nvarchar(200) NULL,
+        [ManagerEmail] nvarchar(200) NULL,
         CONSTRAINT [PK_Branches] PRIMARY KEY ([BranchId])
     );
-END";
+END
+ELSE
+BEGIN
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Branches') AND name = 'ManagerUserId')
+        ALTER TABLE [Branches] ADD [ManagerUserId] nvarchar(450) NULL, [ManagerName] nvarchar(200) NULL, [ManagerEmail] nvarchar(200) NULL;
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Projects') AND name = 'BranchId')
+    ALTER TABLE [Projects] ADD [BranchId] int NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'BranchId')
+    ALTER TABLE [Customers] ADD [BranchId] int NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Quotations') AND name = 'BranchId')
+    ALTER TABLE [Quotations] ADD [BranchId] int NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Activities') AND name = 'BranchId')
+    ALTER TABLE [Activities] ADD [BranchId] int NULL;
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Leads') AND name = 'BranchId')
+    ALTER TABLE [Leads] ADD [BranchId] int NULL;
+";
             await db.Database.ExecuteSqlRawAsync(sql);
         }
         catch { }

@@ -613,9 +613,9 @@ public class SuperAdminBiPage : Panel
                 }
                 if (groupedItems.Count == 0)
                 {
-                    groupedItems.Add(new CrmModernGroupedSparkChart.GroupedBarItem { Label = "FUERTO", Value1 = 450, Value2 = 2499, Detail = "Fuerto Interior: ₱2,499/mo" });
-                    groupedItems.Add(new CrmModernGroupedSparkChart.GroupedBarItem { Label = "LRSALON", Value1 = 630, Value2 = 3499, Detail = "Leo Revita Salon: ₱3,499/mo" });
-                    groupedItems.Add(new CrmModernGroupedSparkChart.GroupedBarItem { Label = "MRDONUT", Value1 = 720, Value2 = 3999, Detail = "Mister Donut: ₱3,999/mo" });
+                    groupedItems.Add(new CrmModernGroupedSparkChart.GroupedBarItem { Label = "FUERTO", Value1 = 450, Value2 = 4999, Detail = "Fuerto Interior: ₱4,999/mo" });
+                    groupedItems.Add(new CrmModernGroupedSparkChart.GroupedBarItem { Label = "GILBB", Value1 = 630, Value2 = 3499, Detail = "GLI Bahay Builds: ₱3,499/mo" });
+                    groupedItems.Add(new CrmModernGroupedSparkChart.GroupedBarItem { Label = "CCDAVAO", Value1 = 720, Value2 = 3499, Detail = "Custom Crafters Davao: ₱3,499/mo" });
                 }
                 _chartSparkGroup.SetData(
                     "Platform ARR", $"₱{_arr:N0}", "+34.4%", true,

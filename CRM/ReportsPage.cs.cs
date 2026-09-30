@@ -1301,7 +1301,10 @@ public class ReportsPage : Panel
         else
         {
             var form = FindForm();
-            if (form is Form1 f1) f1.SelectNavigation(target);
+            if (form is Form1 f1 && f1.CanSee(target))
+            {
+                f1.SelectNavigation(target);
+            }
         }
     }
 

@@ -233,9 +233,7 @@ using (var scope = app.Services.CreateScope())
             await IdentitySeeder.SeedDesignersAsync(userManager, companyId: fuertoCompany.CompanyId);
         }
 
-        // Run initial full dual-database synchronization (reconciles Cloud SQL <-> LocalDB)
-        var syncService = scope.ServiceProvider.GetRequiredService<CRM.infrastructure.Services.ITenantDatabaseSyncService>();
-        await syncService.SyncAllTenantsAsync();
+        // Dual-database synchronization is handled asynchronously in the background by TenantDatabaseSyncWorker
     }
     catch (Exception ex)
     {
@@ -511,7 +509,8 @@ app.MapPost("/login", async (
     SignInManager<ApplicationUser> signInManager,
     IConfiguration configuration,
     MasterErpDbContext db,
-    CRM.api.Services.PlatformTermsManager termsManager) =>
+    CRM.api.Services.PlatformTermsManager termsManager,
+    CRM.infrastructure.Services.ITenantDbContextFactory tenantFactory) =>
 {
     var user = await userManager.FindByEmailAsync(request.Email);
 
@@ -558,6 +557,23 @@ app.MapPost("/login", async (
         claims.Add(new System.Security.Claims.Claim(
             "CompanyId",
             resolvedCompanyId.Value.ToString()));
+    }
+
+    int? branchId = user.BranchId;
+    string? branchName = null;
+    if (branchId.HasValue)
+    {
+        claims.Add(new System.Security.Claims.Claim("BranchId", branchId.Value.ToString()));
+        if (resolvedCompanyId.HasValue)
+        {
+            try
+            {
+                await using var tenantDb = await tenantFactory.CreateAsync(resolvedCompanyId.Value);
+                var b = await tenantDb.Branches.FirstOrDefaultAsync(x => x.BranchId == branchId.Value);
+                if (b != null) branchName = b.BranchName;
+            }
+            catch { }
+        }
     }
 
     foreach (var role in roles)
@@ -618,9 +634,12 @@ app.MapPost("/login", async (
         message = "Login successful.",
         userId = user.Id,
         email = user.Email,
+        fullName = user.FullName,
         companyId = resolvedCompanyId,
         companyName,
         companyCode,
+        branchId,
+        branchName,
         availedModules,
         subscriptionStatus,
         hasAcceptedTerms,

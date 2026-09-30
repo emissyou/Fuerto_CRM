@@ -10,6 +10,7 @@ public class Project : CompanyEntity
     public string ProjectName { get; set; } = string.Empty;
 
     public int CustomerId { get; set; }
+    public int? BranchId { get; set; }
 
     // ---- Designer assignment ----
     // NOTE: ApplicationUser lives in the Master DB (Identity).

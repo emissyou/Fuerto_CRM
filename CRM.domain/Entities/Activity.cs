@@ -1,4 +1,4 @@
-﻿namespace CRM.domain.Entities;
+namespace CRM.domain.Entities;
 
 public class Activity : CompanyEntity
 {
@@ -9,6 +9,8 @@ public class Activity : CompanyEntity
     public int? LeadId { get; set; }
 
     public int? ProjectId { get; set; }
+
+    public int? BranchId { get; set; }
 
     public string ActivityType { get; set; } = "Other";
 

@@ -36,6 +36,13 @@ public static class LeadEndpoints
             lead.Notes = lead.Notes?.Trim() ?? string.Empty;
             lead.CreatedAt = DateTime.UtcNow;
 
+            if (!lead.BranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    lead.BranchId = bClaimVal;
+            }
+
             db.Leads.Add(lead);
 
             await db.SaveChangesAsync();
@@ -50,6 +57,7 @@ public static class LeadEndpoints
         // GET ALL LEADS
         app.MapGet("/tenant/{companyId:int}/leads", async (
             int companyId,
+            int? branchId,
             HttpContext httpContext,
             ITenantDbContextFactory tenantFactory) =>
         {
@@ -58,12 +66,27 @@ public static class LeadEndpoints
                 return Results.Forbid();
             }
 
+            int? effectiveBranchId = branchId;
+            if (!effectiveBranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    effectiveBranchId = bClaimVal;
+            }
+
             await using var db =
                 await tenantFactory.CreateAsync(companyId);
 
-            var leads = await db.Leads
+            var query = db.Leads
                 .AsNoTracking()
-                .Where(x => x.CompanyId == companyId)
+                .Where(x => x.CompanyId == companyId);
+
+            if (effectiveBranchId.HasValue)
+            {
+                query = query.Where(x => x.BranchId == effectiveBranchId.Value);
+            }
+
+            var leads = await query
                 .OrderByDescending(x => x.LeadId)
                 .ToListAsync();
 
@@ -132,14 +155,14 @@ public static class LeadEndpoints
                 });
             }
 
-            lead.FirstName = request.FirstName;
-            lead.LastName = request.LastName;
-            lead.Email = request.Email;
-            lead.Phone = request.Phone;
-            lead.LeadSource = request.LeadSource;
-            lead.Status = request.Status;
-            lead.ServiceInterest = request.ServiceInterest;
-            lead.Notes = request.Notes;
+            lead.FirstName = request.FirstName?.Trim() ?? lead.FirstName ?? string.Empty;
+            lead.LastName = request.LastName?.Trim() ?? lead.LastName ?? string.Empty;
+            lead.Email = request.Email?.Trim() ?? lead.Email ?? string.Empty;
+            lead.Phone = request.Phone?.Trim() ?? lead.Phone ?? string.Empty;
+            lead.LeadSource = string.IsNullOrWhiteSpace(request.LeadSource) ? (lead.LeadSource ?? "Other") : request.LeadSource.Trim();
+            lead.Status = string.IsNullOrWhiteSpace(request.Status) ? (lead.Status ?? "New") : request.Status.Trim();
+            lead.ServiceInterest = request.ServiceInterest?.Trim() ?? lead.ServiceInterest ?? string.Empty;
+            lead.Notes = request.Notes?.Trim() ?? lead.Notes ?? string.Empty;
             lead.IsActive = request.IsActive;
 
             await db.SaveChangesAsync();

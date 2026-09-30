@@ -19,11 +19,20 @@ public static class BiEndpoints
         // ============================================================
         group.MapGet("/kpis", async (
             int companyId,
+            int? branchId,
             HttpContext http,
             ITenantDbContextFactory tenantFactory) =>
         {
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
+
+            int? effectiveBranchId = branchId;
+            if (!effectiveBranchId.HasValue)
+            {
+                var branchClaim = http.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    effectiveBranchId = bClaimVal;
+            }
 
             try
             {
@@ -35,33 +44,40 @@ public static class BiEndpoints
             var oneYearAgo = now.AddDays(-365);
 
             // ---- Lead conversion ----
-            var totalLeads = await db.Leads.CountAsync(l => l.CompanyId == companyId);
-            var convertedLeads = await db.Leads.CountAsync(l =>
-                l.CompanyId == companyId && l.Status == "Converted");
+            var leadsQuery = db.Leads.Where(l => l.CompanyId == companyId);
+            if (effectiveBranchId.HasValue) leadsQuery = leadsQuery.Where(l => l.BranchId == effectiveBranchId.Value);
+
+            var totalLeads = await leadsQuery.CountAsync();
+            var convertedLeads = await leadsQuery.CountAsync(l =>
+                l.Status == "Converted" || l.Status == "Won");
             var conversionRate = totalLeads > 0
                 ? Math.Round((double)convertedLeads / totalLeads * 100, 2) : 0.0;
 
             // ---- Average project value ----
-            var avgProjectValue = await db.Quotations
-                .Where(q => q.CompanyId == companyId
-                         && (q.Status == "Accepted" || q.Status == "Issued"))
+            var quotesQuery = db.Quotations.Where(q => q.CompanyId == companyId);
+            if (effectiveBranchId.HasValue) quotesQuery = quotesQuery.Where(q => q.BranchId == effectiveBranchId.Value);
+
+            var avgProjectValue = await quotesQuery
+                .Where(q => q.Status == "Accepted" || q.Status == "Issued")
                 .Select(q => (double?)q.TotalAmount)
                 .AverageAsync() ?? 0;
 
             // ---- Days to accept quote ----
-            var acceptedQuotes = await db.Quotations
-                .Where(q => q.CompanyId == companyId
-                         && q.IssuedAt != null
-                         && q.AcceptedAt != null)
-                .Select(q => EF.Functions.DateDiffDay(q.IssuedAt!.Value, q.AcceptedAt!.Value))
+            var acceptedQuotes = await quotesQuery
+                .Where(q => q.Status == "Accepted" || q.AcceptedAt != null)
+                .Select(q => (double?)EF.Functions.DateDiffDay(
+                    q.IssuedAt ?? q.CreatedAt,
+                    q.AcceptedAt ?? q.QuotationDate))
                 .ToListAsync();
-            var avgDaysToAccept = acceptedQuotes.Any() ? acceptedQuotes.Average() : 0;
+            var avgDaysToAccept = acceptedQuotes.Any(d => d != null && d >= 0)
+                ? Math.Round(acceptedQuotes.Where(d => d != null && d >= 0).Average(d => d!.Value), 1) : 0;
 
             // ---- Days to complete project ----
-            var completedProjects = await db.Projects
-                .Where(p => p.CompanyId == companyId
-                         && p.DesignStartDate != null
-                         && p.DesignCompletionDate != null)
+            var projectsQuery = db.Projects.Where(p => p.CompanyId == companyId);
+            if (effectiveBranchId.HasValue) projectsQuery = projectsQuery.Where(p => p.BranchId == effectiveBranchId.Value);
+
+            var completedProjects = await projectsQuery
+                .Where(p => p.DesignStartDate != null && p.DesignCompletionDate != null)
                 .Select(p => EF.Functions.DateDiffDay(p.DesignStartDate!.Value, p.DesignCompletionDate!.Value))
                 .ToListAsync();
             var avgDaysToComplete = completedProjects.Any() ? completedProjects.Average() : 0;
@@ -78,21 +94,23 @@ public static class BiEndpoints
                 ? Math.Round(feedbacks.Count(f => f.WouldRecommend) * 100.0 / feedbacks.Count, 2) : 0.0;
 
             // ---- Revenue windows ----
-            var revenueLast30 = await db.Quotations
-                .Where(q => q.CompanyId == companyId && q.FullyPaidDate >= thirtyDaysAgo)
+            var revenueLast30 = await quotesQuery
+                .Where(q => (q.AmountPaid > 0 || q.PaymentStatus == "FullyPaid" || q.PaymentStatus == "DepositReceived")
+                         && (q.FullyPaidDate ?? q.QuotationDate) >= thirtyDaysAgo)
                 .SumAsync(q => (decimal?)q.AmountPaid) ?? 0m;
 
-            var revenueLast90 = await db.Quotations
-                .Where(q => q.CompanyId == companyId && q.FullyPaidDate >= ninetyDaysAgo)
+            var revenueLast90 = await quotesQuery
+                .Where(q => (q.AmountPaid > 0 || q.PaymentStatus == "FullyPaid" || q.PaymentStatus == "DepositReceived")
+                         && (q.FullyPaidDate ?? q.QuotationDate) >= ninetyDaysAgo)
                 .SumAsync(q => (decimal?)q.AmountPaid) ?? 0m;
 
-            var revenueLast365 = await db.Quotations
-                .Where(q => q.CompanyId == companyId && q.FullyPaidDate >= oneYearAgo)
+            var revenueLast365 = await quotesQuery
+                .Where(q => (q.AmountPaid > 0 || q.PaymentStatus == "FullyPaid" || q.PaymentStatus == "DepositReceived")
+                         && (q.FullyPaidDate ?? q.QuotationDate) >= oneYearAgo)
                 .SumAsync(q => (decimal?)q.AmountPaid) ?? 0m;
 
             // ---- Repeat rate ----
-            var customerIdsWithProjects = await db.Projects
-                .Where(p => p.CompanyId == companyId)
+            var customerIdsWithProjects = await projectsQuery
                 .GroupBy(p => p.CustomerId)
                 .Select(g => new { CustomerId = g.Key, Count = g.Count() })
                 .ToListAsync();
@@ -104,8 +122,8 @@ public static class BiEndpoints
 
             // ---- Churn (no project in 365 days) ----
             var activeCutoff = now.AddDays(-365);
-            var customersWithRecentProject = await db.Projects
-                .Where(p => p.CompanyId == companyId && p.CreatedAt >= activeCutoff)
+            var customersWithRecentProject = await projectsQuery
+                .Where(p => p.CreatedAt >= activeCutoff)
                 .Select(p => p.CustomerId)
                 .Distinct()
                 .ToListAsync();
@@ -572,11 +590,20 @@ public static class BiEndpoints
         // ============================================================
         group.MapGet("/revenue", async (
             int companyId,
+            int? branchId,
             HttpContext http,
             ITenantDbContextFactory tenantFactory) =>
         {
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
+
+            int? effectiveBranchId = branchId;
+            if (!effectiveBranchId.HasValue)
+            {
+                var branchClaim = http.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    effectiveBranchId = bClaimVal;
+            }
 
             try
             {
@@ -584,23 +611,35 @@ public static class BiEndpoints
 
             var cutoff = DateTime.UtcNow.AddMonths(-12);
 
-            var rows = await db.Quotations
-                .Where(q => q.CompanyId == companyId
-                         && q.FullyPaidDate != null
-                         && q.FullyPaidDate >= cutoff)
+            var qQuery = db.Quotations.Where(q => q.CompanyId == companyId);
+            if (effectiveBranchId.HasValue) qQuery = qQuery.Where(q => q.BranchId == effectiveBranchId.Value);
+
+            var rawRows = await qQuery
+                .Where(q => (q.AmountPaid > 0 || q.PaymentStatus == "FullyPaid" || q.PaymentStatus == "DepositReceived")
+                         && (q.FullyPaidDate ?? q.QuotationDate) >= cutoff)
                 .Select(q => new
                 {
-                    Year = q.FullyPaidDate!.Value.Year,
-                    Month = q.FullyPaidDate!.Value.Month,
+                    EffectiveDate = q.FullyPaidDate ?? q.QuotationDate,
                     q.AmountPaid,
                     q.TotalAmount,
                     ProjectId = q.ProjectId
                 })
                 .ToListAsync();
 
+            var rows = rawRows.Select(q => new
+            {
+                Year = q.EffectiveDate.Year,
+                Month = q.EffectiveDate.Month,
+                q.AmountPaid,
+                q.TotalAmount,
+                q.ProjectId
+            }).ToList();
+
             // Project count per month (for pipeline context)
-            var projectRows = await db.Projects
-                .Where(p => p.CompanyId == companyId && p.CreatedAt >= cutoff)
+            var pQuery = db.Projects.Where(p => p.CompanyId == companyId && p.CreatedAt >= cutoff);
+            if (effectiveBranchId.HasValue) pQuery = pQuery.Where(p => p.BranchId == effectiveBranchId.Value);
+
+            var projectRows = await pQuery
                 .Select(p => new { p.CreatedAt, p.ProjectId })
                 .ToListAsync();
 

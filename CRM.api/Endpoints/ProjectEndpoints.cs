@@ -54,6 +54,13 @@ public static class ProjectEndpoints
             project.DesignerName = project.DesignerName?.Trim() ?? string.Empty;
             project.DesignerAssignedBy = project.DesignerAssignedBy?.Trim() ?? string.Empty;
 
+            if (!project.BranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    project.BranchId = bClaimVal;
+            }
+
             db.Projects.Add(project);
 
             await db.SaveChangesAsync();
@@ -68,6 +75,7 @@ public static class ProjectEndpoints
         // GET ALL PROJECTS
         app.MapGet("/tenant/{companyId:int}/projects", async (
             int companyId,
+            int? branchId,
             HttpContext httpContext,
             ITenantDbContextFactory tenantFactory) =>
         {
@@ -76,13 +84,28 @@ public static class ProjectEndpoints
                 return Results.Forbid();
             }
 
+            int? effectiveBranchId = branchId;
+            if (!effectiveBranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    effectiveBranchId = bClaimVal;
+            }
+
             await using var db =
                 await tenantFactory.CreateAsync(companyId);
 
-            var projects = await db.Projects
+            var query = db.Projects
                 .AsNoTracking()
                 .Include(x => x.Customer)
-                .Where(x => x.CompanyId == companyId)
+                .Where(x => x.CompanyId == companyId);
+
+            if (effectiveBranchId.HasValue)
+            {
+                query = query.Where(x => x.BranchId == effectiveBranchId.Value);
+            }
+
+            var projects = await query
                 .OrderByDescending(x => x.ProjectId)
                 .ToListAsync();
 

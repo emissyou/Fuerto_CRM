@@ -72,8 +72,8 @@ public class TenantDatabaseResolver : ITenantDatabaseResolver
         return companyId switch
         {
             1 => new TenantDatabaseInfo { ServerName = "db67080.public.databaseasp.net", DatabaseName = "db67080", CredentialKey = "Fuerto" },
-            2 => new TenantDatabaseInfo { ServerName = "db70838.public.databaseasp.net", DatabaseName = "db70838", CredentialKey = "LRSalon" },
-            3 => new TenantDatabaseInfo { ServerName = "db70839.public.databaseasp.net", DatabaseName = "db70839", CredentialKey = "MrDonut" },
+            2 => new TenantDatabaseInfo { ServerName = "db70838.public.databaseasp.net", DatabaseName = "db70838", CredentialKey = "GLIBahayBuilds" },
+            3 => new TenantDatabaseInfo { ServerName = "db70839.public.databaseasp.net", DatabaseName = "db70839", CredentialKey = "CustomCraftersDavao" },
             _ => new TenantDatabaseInfo { ServerName = "(localdb)\\MSSQLLocalDB", DatabaseName = $"CRM_Tenant_{companyId}", CredentialKey = "Local" }
         };
     }

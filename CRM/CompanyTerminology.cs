@@ -2,147 +2,132 @@ namespace CRM_DesignServices.winforms;
 
 /// <summary>
 /// Provides company-specific terminology so that each tenant sees
-/// language that matches their industry (salon, food-retail, etc.).
+/// language that matches their industry:
+/// - FUERTO: Interior Design Services & Architecture
+/// - GILBB: GLI Bahay Builds (Construction Company)
+/// - CCDAVAO: Custom Crafters Davao (Renovation & Remodeling Company)
 /// </summary>
 public static class CompanyTerminology
 {
     // ── Company codes ───────────────────────────────────────────────────────
-    public const string Salon  = "LRSALON";
-    public const string Donut  = "MRDONUT";
-    public static bool IsSalon => Code == Salon;
-    public static bool IsDonut => Code == Donut;
+    public const string Fuerto = "FUERTO";
+    public const string Gilbb = "GILBB";
+    public const string Ccdavao = "CCDAVAO";
+
+    // Backwards-compatibility aliases
+    public const string Salon = "GILBB";
+    public const string Donut = "CCDAVAO";
+
+    public static bool IsFuerto  => Code.Equals(Fuerto, StringComparison.OrdinalIgnoreCase);
+    public static bool IsGilbb   => Code.Equals(Gilbb, StringComparison.OrdinalIgnoreCase) || Code.Equals("GLIBB", StringComparison.OrdinalIgnoreCase) || Code.Equals("LRSALON", StringComparison.OrdinalIgnoreCase);
+    public static bool IsCcdavao => Code.Equals(Ccdavao, StringComparison.OrdinalIgnoreCase) || Code.Equals("MRDONUT", StringComparison.OrdinalIgnoreCase);
 
     // ── Sidebar nav labels ─────────────────────────────────────────────────
-    public static string Customers  => Code switch { Salon => "Clients",          _ => "Customers"  };
-    public static string Leads      => Code switch { Salon => "Leads",            _ => "Leads"      };
-    public static string Quotations => Code switch { Salon => "Appointments",     _ => "Quotations" };
-    public static string Projects   => Code switch { Salon => "Salon Services",   _ => "Projects"   };
-    public static string Activities => Code switch { Salon => "Follow-ups",       _ => "Activities" };
-    public static string Issues     => Code switch { Salon => "Service Complaints", _ => "Issues"   };
-    public static string Feedback   => Code switch { Salon => "Client Reviews",   _ => "Feedback"   };
-    public static string Designers  => Code switch { Salon => "Stylists",         _ => "Designers"  };
+    public static string Customers  => "Clients";
+    public static string Leads      => IsGilbb ? "Project Inquiries" : IsCcdavao ? "Renovation Leads" : "Leads";
+    public static string Quotations => IsGilbb ? "Building Estimates" : IsCcdavao ? "Renovation Quotes" : "Quotations";
+    public static string Projects   => IsGilbb ? "Construction Projects" : IsCcdavao ? "Renovation Projects" : "Projects";
+    public static string Activities => IsGilbb ? "Site Visits & Inspections" : IsCcdavao ? "Site Consultations" : "Activities";
+    public static string Issues     => IsGilbb ? "Site Issues & Defects" : IsCcdavao ? "Rework & Punch List" : "Issues";
+    public static string Feedback   => "Client Reviews";
+    public static string Designers  => IsGilbb ? "Site Engineers & Architects" : IsCcdavao ? "Craftsmen & Designers" : "Designers";
     public static string Users      => "Team Accounts";
-    public static string Retention  => Code switch { Donut => "Loyalty Programs", _ => "Retention"  };
-    public static string Promotions => Code switch { Donut => "Product Deals",    _ => "Promotions" };
-    public static string Overview   => Code switch { Donut => "Store Performance",_ => "Overview"   };
-    public static string Analytics  => Code switch { Donut => "Sales Analytics",  _ => "Analytics"  };
-    public static string Reports    => Code switch { Donut => "Sales Reports",     _ => "Reports"    };
+    public static string Retention  => "Retention & Accounts";
+    public static string Promotions => "Packages & Promotions";
+    public static string Overview   => "Overview";
+    public static string Analytics  => "Analytics";
+    public static string Reports    => "Reports";
 
     // ── Group labels in the sidebar ────────────────────────────────────────
-    public static string GroupSalesCrm   => Code switch { Salon => "CLIENTS & BOOKINGS", Donut => "CUSTOMER HUB", _ => "SALES & CRM" };
-    public static string GroupOperations => Code switch { Salon => "SALON OPERATIONS",   Donut => "STORE OPS",   _ => "OPERATIONS" };
-    public static string GroupInsights   => Code switch { Donut => "PERFORMANCE",        _ => "INSIGHTS"         };
+    public static string GroupSalesCrm   => IsGilbb ? "CONSTRUCTION SALES" : IsCcdavao ? "RENOVATION CLIENTS" : "SALES & CRM";
+    public static string GroupOperations => IsGilbb ? "CONSTRUCTION OPS"   : IsCcdavao ? "RENOVATION OPS"     : "OPERATIONS";
+    public static string GroupInsights   => "INSIGHTS";
 
     // ── Page subtitles ─────────────────────────────────────────────────────
-    public static string SubtitleOverview   => Code switch
-    {
-        Donut => "Real-time store performance, daily sales, and foot traffic",
-        Salon => "Live snapshot of today's appointments and client activity",
-        _     => "Live snapshot of your company records"
-    };
-    public static string SubtitleCustomers  => Code switch
-    {
-        Salon => "Manage client profiles, preferences, and appointment history",
-        _     => "Manage and view your client relationships"
-    };
-    public static string SubtitleLeads      => Code switch
-    {
-        Salon => "Track prospective clients and walk-in inquiries",
-        _     => "Track potential customers and opportunities"
-    };
-    public static string SubtitleQuotations => Code switch
-    {
-        Salon => "Manage appointment bookings and service reservations",
-        _     => "Manage proposals and quotation records"
-    };
-    public static string SubtitleProjects   => Code switch
-    {
-        Salon => "Track ongoing styling sessions and service delivery",
-        _     => "Monitor your client projects and execution progress"
-    };
-    public static string SubtitleActivities => Code switch
-    {
-        Salon => "Client follow-ups, reminders, and post-service check-ins",
-        _     => "Track client interactions and follow-ups"
-    };
-    public static string SubtitleIssues     => Code switch
-    {
-        Salon => "Service complaints, rework requests, and resolution tracking",
-        _     => "Complaints, adjustments, and rework requests"
-    };
-    public static string SubtitleFeedback   => Code switch
-    {
-        Salon => "Client reviews, ratings, and stylist performance feedback",
-        _     => "Customer feedback and ratings"
-    };
-    public static string SubtitleDesigners  => Code switch
-    {
-        Salon => "Manage stylists, schedule availability, and performance",
-        _     => "Manage team members and view performance ratings"
-    };
-    public static string SubtitleRetention  => Code switch
-    {
-        Donut => "Loyalty points, reward tiers, and member engagement programs",
-        _     => "Customer segments & recommended actions"
-    };
-    public static string SubtitlePromotions => Code switch
-    {
-        Donut => "Combo offers, product deals, and limited-time discounts",
-        _     => "Create and manage promotional offers"
-    };
-    public static string SubtitleAnalytics  => Code switch
-    {
-        Donut => "Daily sales trends, best sellers, and revenue breakdown",
-        _     => "KPIs, trends, and retention intelligence"
-    };
-    public static string SubtitleReports    => Code switch
-    {
-        Donut => "Sales reports, product performance, and franchise summaries",
-        _     => "Review company performance and records"
-    };
+    public static string SubtitleOverview => IsGilbb
+        ? "Live snapshot of construction milestones, bids, and active job sites"
+        : IsCcdavao
+            ? "Real-time renovation progress, remodeling estimates, and client contracts"
+            : "Live snapshot of your company records";
+
+    public static string SubtitleCustomers => IsGilbb
+        ? "Manage property owners, general contractors, and corporate client accounts"
+        : IsCcdavao
+            ? "Manage homeowner and commercial remodeling client profiles"
+            : "Manage and view your client relationships";
+
+    public static string SubtitleLeads => IsGilbb
+        ? "Track prospective build projects, architectural bids, and plot inquiries"
+        : IsCcdavao
+            ? "Track residential and commercial renovation project inquiries"
+            : "Track potential customers and opportunities";
+
+    public static string SubtitleQuotations => IsGilbb
+        ? "Prepare, send, and track construction estimates and bills of quantities"
+        : IsCcdavao
+            ? "Manage remodeling bids, material schedules, and renovation proposals"
+            : "Manage proposals and quotation records";
+
+    public static string SubtitleProjects => IsGilbb
+        ? "Monitor structural phases, site milestones, and turnkey construction progress"
+        : IsCcdavao
+            ? "Track remodeling phases, craftsmanship milestones, and completion dates"
+            : "Monitor your client projects and execution progress";
+
+    public static string SubtitleActivities => IsGilbb
+        ? "Site visits, engineering inspections, concrete pouring logs, and client check-ins"
+        : IsCcdavao
+            ? "On-site measurements, design consultations, and client follow-ups"
+            : "Track client interactions and follow-ups";
+
+    public static string SubtitleIssues => IsGilbb
+        ? "Site punch list, engineering defect notices, weather delays, and structural rework"
+        : IsCcdavao
+            ? "Carpentry adjustments, material snags, and renovation punch list items"
+            : "Complaints, adjustments, and rework requests";
+
+    public static string SubtitleFeedback => IsGilbb
+        ? "Homeowner and developer satisfaction ratings and construction reviews"
+        : IsCcdavao
+            ? "Client feedback on renovation quality, finish craftsmanship, and cleanliness"
+            : "Customer feedback and ratings";
+
+    public static string SubtitleDesigners => IsGilbb
+        ? "Manage licensed civil engineers, project architects, and site foremen"
+        : IsCcdavao
+            ? "Manage master carpenters, interior remodelers, and finish craftsmen"
+            : "Manage team members and view performance ratings";
+
+    public static string SubtitleRetention  => "Customer segments & account retention actions";
+    public static string SubtitlePromotions => "Seasonal packages, referral programs, and project bundles";
+    public static string SubtitleAnalytics  => "Revenue trends, milestone completion rates, and profit margin analysis";
+    public static string SubtitleReports    => "Comprehensive operational, financial, and construction reports";
 
     // ── Dashboard KPI card labels ──────────────────────────────────────────
-    public static string KpiCustomersLabel => Code switch
-    {
-        Salon => "TOTAL CLIENTS",
-        _     => "TOTAL CUSTOMERS"
-    };
-    public static string KpiLeadsLabel     => Code switch
-    {
-        Salon => "OPEN INQUIRIES",
-        _     => "OPEN LEADS"
-    };
-    public static string KpiProjectsLabel  => Code switch
-    {
-        Salon => "ACTIVE SERVICES",
-        _     => "ACTIVE PROJECTS"
-    };
-    public static string KpiRevenueLabel   => Code switch
-    {
-        Donut => "TODAY'S SALES",
-        Salon => "MONTH REVENUE",
-        _     => "QUOTATION VALUE"
-    };
+    public static string KpiCustomersLabel => "TOTAL CLIENTS";
+    public static string KpiLeadsLabel     => IsGilbb ? "BUILD INQUIRIES" : IsCcdavao ? "RENOVATION LEADS" : "OPEN LEADS";
+    public static string KpiProjectsLabel  => IsGilbb ? "ACTIVE BUILDS" : IsCcdavao ? "ACTIVE RENOVATIONS" : "ACTIVE PROJECTS";
+    public static string KpiRevenueLabel   => IsGilbb ? "CONSTRUCTION VALUE" : IsCcdavao ? "RENOVATION VALUE" : "QUOTATION VALUE";
 
     // ── Action button labels ───────────────────────────────────────────────
-    public static string BtnNewCustomer   => Code switch { Salon => "＋  New Client",     _ => "＋  New Customer"  };
-    public static string BtnNewLead       => Code switch { Salon => "＋  New Inquiry",    _ => "＋  New Lead"      };
-    public static string BtnNewQuotation  => Code switch { Salon => "＋  Book Appointment", _ => "＋  New Quotation" };
-    public static string BtnNewProject    => Code switch { Salon => "＋  New Service",    _ => "＋  New Project"   };
-    public static string BtnNewRetention  => Code switch { Donut => "＋  Add Member",     _ => "＋  Retain Any Customer" };
-    public static string BtnNewPromotion  => Code switch { Donut => "＋  New Deal",       _ => "＋  New Promotion" };
+    public static string BtnNewCustomer   => "＋  New Client";
+    public static string BtnNewLead       => IsGilbb ? "＋  New Build Inquiry" : IsCcdavao ? "＋  New Renovation Lead" : "＋  New Lead";
+    public static string BtnNewQuotation  => IsGilbb ? "＋  New Estimate" : IsCcdavao ? "＋  New Renovation Quote" : "＋  New Quotation";
+    public static string BtnNewProject    => IsGilbb ? "＋  New Construction" : IsCcdavao ? "＋  New Renovation" : "＋  New Project";
+    public static string BtnNewRetention  => "＋  Retain Any Client";
+    public static string BtnNewPromotion  => "＋  New Promotion";
 
     // ── Retention page labels ──────────────────────────────────────────────
-    public static string RetentionPageTitle    => Code switch { Donut => "Customer Loyalty Programs", _ => "Retention" };
-    public static string RetentionCardLabel    => Code switch { Donut => "LOYALTY MEMBERS",           _ => "RETAINED CUSTOMERS" };
-    public static string RetentionRiskLabel    => Code switch { Donut => "INACTIVE MEMBERS",          _ => "AT-RISK CUSTOMERS" };
-    public static string RetentionWinbackLabel => Code switch { Donut => "WIN-BACK TARGETS",          _ => "WIN-BACK TARGETS" };
-    public static string RetentionSegmentCol   => Code switch { Donut => "LOYALTY TIER",              _ => "SEGMENT" };
+    public static string RetentionPageTitle    => "Client Retention & Accounts";
+    public static string RetentionCardLabel    => "RETAINED CLIENTS";
+    public static string RetentionRiskLabel    => "AT-RISK CLIENTS";
+    public static string RetentionWinbackLabel => "WIN-BACK TARGETS";
+    public static string RetentionSegmentCol   => "SEGMENT";
 
     // ── Promotions page labels ─────────────────────────────────────────────
-    public static string PromotionsPageTitle   => Code switch { Donut => "Product Deals & Offers",   _ => "Promotions" };
-    public static string PromotionTypeLabel    => Code switch { Donut => "DEAL TYPE",                 _ => "TYPE" };
-    public static string PromotionNewBtn       => Code switch { Donut => "＋  New Deal",              _ => "＋  New Promotion" };
+    public static string PromotionsPageTitle   => "Packages & Seasonal Offers";
+    public static string PromotionTypeLabel    => "OFFER TYPE";
+    public static string PromotionNewBtn       => "＋  New Offer";
 
     // ── Helper ─────────────────────────────────────────────────────────────
     public static string Code => Session.CompanyCode ?? string.Empty;

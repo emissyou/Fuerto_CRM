@@ -48,6 +48,13 @@ public static class QuotationEndpoints
             // ---- Auto-fill identifiers ----
             quotation.CompanyId = companyId;
             quotation.CustomerId = project.CustomerId;   // inherit from project
+            quotation.BranchId = quotation.BranchId ?? project.BranchId;
+            if (!quotation.BranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    quotation.BranchId = bClaimVal;
+            }
             quotation.CreatedAt = DateTime.UtcNow;
             quotation.QuotationDate = DateTime.UtcNow;
 
@@ -91,6 +98,7 @@ public static class QuotationEndpoints
         // GET ALL QUOTATIONS
         app.MapGet("/tenant/{companyId:int}/quotations", async (
             int companyId,
+            int? branchId,
             HttpContext httpContext,
             ITenantDbContextFactory tenantFactory) =>
         {
@@ -99,13 +107,28 @@ public static class QuotationEndpoints
                 return Results.Forbid();
             }
 
+            int? effectiveBranchId = branchId;
+            if (!effectiveBranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    effectiveBranchId = bClaimVal;
+            }
+
             await using var db =
                 await tenantFactory.CreateAsync(companyId);
 
-            var quotations = await db.Quotations
+            var query = db.Quotations
                 .AsNoTracking()
                 .Include(x => x.Project)
-                .Where(x => x.CompanyId == companyId)
+                .Where(x => x.CompanyId == companyId);
+
+            if (effectiveBranchId.HasValue)
+            {
+                query = query.Where(x => x.BranchId == effectiveBranchId.Value);
+            }
+
+            var quotations = await query
                 .OrderByDescending(x => x.QuotationId)
                 .ToListAsync();
 

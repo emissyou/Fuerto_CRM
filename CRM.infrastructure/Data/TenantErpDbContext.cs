@@ -445,6 +445,38 @@ public class TenantErpDbContext : DbContext
             entity.Property(x => x.Address).HasMaxLength(500);
             entity.Property(x => x.ContactNumber).HasMaxLength(50);
             entity.Property(x => x.Email).HasMaxLength(100);
+            entity.Property(x => x.ManagerUserId).HasMaxLength(450);
+            entity.Property(x => x.ManagerName).HasMaxLength(200);
+            entity.Property(x => x.ManagerEmail).HasMaxLength(200);
         });
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        NormalizeStringProperties();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override int SaveChanges()
+    {
+        NormalizeStringProperties();
+        return base.SaveChanges();
+    }
+
+    private void NormalizeStringProperties()
+    {
+        foreach (var entry in ChangeTracker.Entries())
+        {
+            if (entry.State != EntityState.Added && entry.State != EntityState.Modified)
+                continue;
+
+            foreach (var property in entry.Properties)
+            {
+                if (property.Metadata.ClrType == typeof(string) && property.CurrentValue == null && !property.Metadata.IsNullable)
+                {
+                    property.CurrentValue = string.Empty;
+                }
+            }
+        }
     }
 }

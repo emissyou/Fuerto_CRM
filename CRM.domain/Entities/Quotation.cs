@@ -10,6 +10,7 @@ public class Quotation : CompanyEntity
 
     public int ProjectId { get; set; }
     public int CustomerId { get; set; }
+    public int? BranchId { get; set; }
 
     public DateTime QuotationDate { get; set; } = DateTime.UtcNow;
 

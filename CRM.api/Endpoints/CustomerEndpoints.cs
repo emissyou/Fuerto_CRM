@@ -12,6 +12,7 @@ public static class CustomerEndpoints
         // GET ALL CUSTOMERS
         app.MapGet("/tenant/{companyId:int}/customers", async (
             int companyId,
+            int? branchId,
             HttpContext httpContext,
             ITenantDbContextFactory tenantFactory) =>
         {
@@ -20,12 +21,27 @@ public static class CustomerEndpoints
                 return Results.Forbid();
             }
 
+            int? effectiveBranchId = branchId;
+            if (!effectiveBranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    effectiveBranchId = bClaimVal;
+            }
+
             await using var db =
                 await tenantFactory.CreateAsync(companyId);
 
-            var customers = await db.Customers
+            var query = db.Customers
                 .AsNoTracking()
-                .Where(x => x.CompanyId == companyId)
+                .Where(x => x.CompanyId == companyId);
+
+            if (effectiveBranchId.HasValue)
+            {
+                query = query.Where(x => x.BranchId == effectiveBranchId.Value);
+            }
+
+            var customers = await query
                 .OrderByDescending(x => x.CustomerId)
                 .ToListAsync();
 
@@ -90,6 +106,13 @@ public static class CustomerEndpoints
             customer.Address = customer.Address?.Trim() ?? string.Empty;
             customer.Notes = customer.Notes?.Trim() ?? string.Empty;
             customer.CustomerType = string.IsNullOrWhiteSpace(customer.CustomerType) ? "Regular" : customer.CustomerType.Trim();
+
+            if (!customer.BranchId.HasValue)
+            {
+                var branchClaim = httpContext.User.FindFirst("BranchId")?.Value;
+                if (int.TryParse(branchClaim, out var bClaimVal))
+                    customer.BranchId = bClaimVal;
+            }
 
             db.Customers.Add(customer);
 

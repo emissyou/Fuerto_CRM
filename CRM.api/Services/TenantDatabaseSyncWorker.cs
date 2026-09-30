@@ -32,7 +32,14 @@ public class TenantDatabaseSyncWorker : BackgroundService
         _logger.LogInformation("TenantDatabaseSyncWorker active.");
 
         // Initial delay before first probe
-        await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -62,14 +69,27 @@ public class TenantDatabaseSyncWorker : BackgroundService
 
                 _wasCloudReachable = isReachable;
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Background tenant database sync check skipped: {Message}", ex.Message);
             }
 
             // Re-check connectivity frequently when offline (3s) or periodic sync when online (8s)
-            await Task.Delay(TimeSpan.FromSeconds(TenantDbContextFactory.IsCloudReachable ? 8 : 3), stoppingToken);
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(TenantDbContextFactory.IsCloudReachable ? 8 : 3), stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
+
+        _logger.LogInformation("TenantDatabaseSyncWorker stopped.");
     }
 
     private async Task<bool> ProbeCloudAsync(CancellationToken ct)

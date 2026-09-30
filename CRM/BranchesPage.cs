@@ -149,6 +149,9 @@ public class BranchesPage : Panel
         _grid.Columns.Add("Email", "EMAIL");
         _grid.Columns["Email"]!.FillWeight = 110;
 
+        _grid.Columns.Add("Manager", "ASSIGNED MANAGER");
+        _grid.Columns["Manager"]!.FillWeight = 140;
+
         _grid.Columns.Add("Type", "TYPE");
         _grid.Columns["Type"]!.FillWeight = 80;
 
@@ -355,6 +358,11 @@ public class BranchesPage : Panel
             string typeDisplay = isMain ? "Main Branch" : "Satellite";
             string statusDisplay = isActive ? "Active" : "Inactive";
 
+            string mgrName = GetProp(b, "managerName", "ManagerName");
+            string mgrEmail = GetProp(b, "managerEmail", "ManagerEmail");
+            string managerDisplay = !string.IsNullOrWhiteSpace(mgrName) ? $"{mgrName} ({mgrEmail})" :
+                                    !string.IsNullOrWhiteSpace(mgrEmail) ? mgrEmail : "— (Unassigned)";
+
             int rowIndex = _grid.Rows.Add(
                 id,
                 code,
@@ -362,6 +370,7 @@ public class BranchesPage : Panel
                 address,
                 contact,
                 email,
+                managerDisplay,
                 typeDisplay,
                 statusDisplay,
                 createdDisplay

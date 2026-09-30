@@ -31,31 +31,43 @@ public static class CompanySeeder
             await masterDb.SaveChangesAsync();
         }
 
-        var salon = await masterDb.Companies.FirstOrDefaultAsync(c => c.CompanyCode == "LRSALON");
-        if (salon == null)
+        var gli = await masterDb.Companies.FirstOrDefaultAsync(c => c.CompanyCode == "GILBB" || c.CompanyCode == "LRSALON");
+        if (gli == null)
         {
-            salon = new Company
+            gli = new Company
             {
-                CompanyCode = "LRSALON",
-                CompanyName = "Leo Revita Salon",
+                CompanyCode = "GILBB",
+                CompanyName = "GLI Bahay Builds",
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
-            masterDb.Companies.Add(salon);
+            masterDb.Companies.Add(gli);
+            await masterDb.SaveChangesAsync();
+        }
+        else if (gli.CompanyCode != "GILBB" || gli.CompanyName != "GLI Bahay Builds")
+        {
+            gli.CompanyCode = "GILBB";
+            gli.CompanyName = "GLI Bahay Builds";
             await masterDb.SaveChangesAsync();
         }
 
-        var donut = await masterDb.Companies.FirstOrDefaultAsync(c => c.CompanyCode == "MRDONUT");
-        if (donut == null)
+        var ccd = await masterDb.Companies.FirstOrDefaultAsync(c => c.CompanyCode == "CCDAVAO" || c.CompanyCode == "MRDONUT");
+        if (ccd == null)
         {
-            donut = new Company
+            ccd = new Company
             {
-                CompanyCode = "MRDONUT",
-                CompanyName = "Mister Donut",
+                CompanyCode = "CCDAVAO",
+                CompanyName = "Custom Crafters Davao",
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
-            masterDb.Companies.Add(donut);
+            masterDb.Companies.Add(ccd);
+            await masterDb.SaveChangesAsync();
+        }
+        else if (ccd.CompanyCode != "CCDAVAO" || ccd.CompanyName != "Custom Crafters Davao")
+        {
+            ccd.CompanyCode = "CCDAVAO";
+            ccd.CompanyName = "Custom Crafters Davao";
             await masterDb.SaveChangesAsync();
         }
 
@@ -93,8 +105,8 @@ public static class CompanySeeder
         }
 
         await EnsureCompanyDb(fuerto.CompanyId, "CRM_Fuerto", "db67080.public.databaseasp.net", "db67080", "Fuerto");
-        await EnsureCompanyDb(salon.CompanyId, "CRM_LRSalon", "db70838.public.databaseasp.net", "db70838", "LeoRevita");
-        await EnsureCompanyDb(donut.CompanyId, "CRM_MrDonut", "db70839.public.databaseasp.net", "db70839", "MisterDonut");
+        await EnsureCompanyDb(gli.CompanyId, "CRM_GILBB", "db70838.public.databaseasp.net", "db70838", "GLIBahayBuilds");
+        await EnsureCompanyDb(ccd.CompanyId, "CRM_CCDavao", "db70839.public.databaseasp.net", "db70839", "CustomCraftersDavao");
 
         // -------------------------------------------------------------
         // 3. COMPANY SUBSCRIPTIONS (Module Entitlements)
@@ -127,11 +139,11 @@ public static class CompanySeeder
         // Fuerto: All modules + Branching
         await EnsureSubscription(fuerto.CompanyId, "Enterprise", 4999m, "All");
 
-        // Leo Revita Salon: Main Transaction + Data Collection
-        await EnsureSubscription(salon.CompanyId, "Professional", 2499m, "Main Transaction,Data Collection");
+        // GLI Bahay Builds (Construction): Business Intelligence + Action
+        await EnsureSubscription(gli.CompanyId, "Professional", 3499m, "Business Intelligence,Action");
 
-        // Mister Donut: Business Intelligence + Action
-        await EnsureSubscription(donut.CompanyId, "Professional", 2999m, "Business Intelligence,Action");
+        // Custom Crafters Davao (Renovation): Main Transaction + Data Collection
+        await EnsureSubscription(ccd.CompanyId, "Professional", 3499m, "Main Transaction,Data Collection");
 
         // -------------------------------------------------------------
         // 4. ADMIN USERS PER COMPANY
@@ -157,9 +169,53 @@ public static class CompanySeeder
             }
         }
 
+        // Remove legacy credentials
+        var oldLeo = await userManager.FindByEmailAsync("admin@leorevita.local");
+        if (oldLeo != null) await userManager.DeleteAsync(oldLeo);
+
+        var oldMrd = await userManager.FindByEmailAsync("admin@misterdonut.local");
+        if (oldMrd != null) await userManager.DeleteAsync(oldMrd);
+
+        // Ensure active company admin logins
         await EnsureAdminUser("admin@fuerto.com", "Fuerto Admin", fuerto.CompanyId);
-        await EnsureAdminUser("admin@leorevita.local", "Leo Revita Salon Admin", salon.CompanyId);
-        await EnsureAdminUser("admin@misterdonut.local", "Mister Donut Admin", donut.CompanyId);
+        await EnsureAdminUser("admin@glibahaybuilds.local", "GLI Bahay Builds Admin", gli.CompanyId);
+        await EnsureAdminUser("admin@customcraftersdavao.local", "Custom Crafters Davao Admin", ccd.CompanyId);
+
+        async Task<ApplicationUser> EnsureManagerUser(string email, string fullName, int companyId, int branchId)
+        {
+            var user = await userManager.FindByEmailAsync(email);
+            if (user == null)
+            {
+                user = new ApplicationUser
+                {
+                    UserName = email,
+                    Email = email,
+                    EmailConfirmed = true,
+                    FullName = fullName,
+                    CompanyId = companyId,
+                    BranchId = branchId
+                };
+                var res = await userManager.CreateAsync(user, "Manager123!");
+                if (res.Succeeded)
+                {
+                    await userManager.AddToRoleAsync(user, ApplicationRoles.Manager);
+                }
+            }
+            else
+            {
+                user.BranchId = branchId;
+                user.FullName = fullName;
+                await userManager.UpdateAsync(user);
+                if (!await userManager.IsInRoleAsync(user, ApplicationRoles.Manager))
+                {
+                    await userManager.AddToRoleAsync(user, ApplicationRoles.Manager);
+                }
+            }
+            return user;
+        }
+
+        var makatiMgr = await EnsureManagerUser("makati.manager@fuerto.local", "Makati Branch Manager", fuerto.CompanyId, 1);
+        await EnsureManagerUser("manager@fuerto.com", "Makati Branch Manager", fuerto.CompanyId, 1);
 
         // -------------------------------------------------------------
         // 5. SEED FUERTO BRANCHES
@@ -182,7 +238,10 @@ public static class CompanySeeder
                         ContactNumber = "+63 2 8888 1001",
                         Email = "makati@fuerto.local",
                         IsMainBranch = true,
-                        IsActive = true
+                        IsActive = true,
+                        ManagerUserId = makatiMgr.Id,
+                        ManagerName = makatiMgr.FullName,
+                        ManagerEmail = makatiMgr.Email
                     },
                     new Branch
                     {
@@ -220,100 +279,89 @@ public static class CompanySeeder
                 );
                 await dbFuerto.SaveChangesAsync();
             }
+            else
+            {
+                var mainB = await dbFuerto.Branches.FirstOrDefaultAsync(b => b.BranchId == 1 || b.IsMainBranch);
+                if (mainB != null && string.IsNullOrEmpty(mainB.ManagerName))
+                {
+                    mainB.ManagerUserId = makatiMgr.Id;
+                    mainB.ManagerName = makatiMgr.FullName;
+                    mainB.ManagerEmail = makatiMgr.Email;
+                    await dbFuerto.SaveChangesAsync();
+                }
+            }
         }
         catch { }
 
         // -------------------------------------------------------------
-        // 6. SEED LEO REVITA SALON (200 Records)
+        // 6. SEED GLI BAHAY BUILDS (Construction Company - No Branches)
         // -------------------------------------------------------------
         try
         {
-            await using var dbSalon = await tenantFactory.CreateAsync(salon.CompanyId);
-            await dbSalon.Database.EnsureCreatedAsync();
-            await CRM.api.Endpoints.BranchEndpoints.EnsureBranchesTableExistsAsync(dbSalon);
+            await using var dbGli = await tenantFactory.CreateAsync(gli.CompanyId);
+            await dbGli.Database.EnsureCreatedAsync();
+            await CRM.api.Endpoints.BranchEndpoints.EnsureBranchesTableExistsAsync(dbGli);
 
-            if (!await dbSalon.Branches.AnyAsync())
+            // Ensure branches are completely removed for GLI Bahay Builds
+            if (await dbGli.Branches.AnyAsync())
             {
-                dbSalon.Branches.AddRange(
+                dbGli.Branches.RemoveRange(dbGli.Branches);
+                await dbGli.SaveChangesAsync();
+            }
+
+            await SeedGliConstruction200Async(dbGli, gli.CompanyId);
+        }
+        catch { }
+
+        // -------------------------------------------------------------
+        // 7. SEED CUSTOM CRAFTERS DAVAO (Renovation Company)
+        // -------------------------------------------------------------
+        try
+        {
+            await using var dbCcd = await tenantFactory.CreateAsync(ccd.CompanyId);
+            await dbCcd.Database.EnsureCreatedAsync();
+            await CRM.api.Endpoints.BranchEndpoints.EnsureBranchesTableExistsAsync(dbCcd);
+
+            if (!await dbCcd.Branches.AnyAsync())
+            {
+                dbCcd.Branches.AddRange(
                     new Branch
                     {
-                        CompanyId = salon.CompanyId,
-                        BranchCode = "LRS-SM",
-                        BranchName = "Leo Revita Salon - SM North EDSA",
-                        Address = "3F Main Mall, SM North EDSA, Quezon City",
-                        ContactNumber = "+63 2 8920 3344",
-                        Email = "smnorth@leorevita.local",
+                        CompanyId = ccd.CompanyId,
+                        BranchCode = "CCD-DVO",
+                        BranchName = "Custom Crafters Davao - Lanang Design Hub",
+                        Address = "Lanang Business Park, JP Laurel Ave, Davao City",
+                        ContactNumber = "+63 82 299 8811",
+                        Email = "lanang@customcrafters.ph",
                         IsMainBranch = true,
                         IsActive = true
                     },
                     new Branch
                     {
-                        CompanyId = salon.CompanyId,
-                        BranchCode = "LRS-MEGA",
-                        BranchName = "Leo Revita Salon - Megamall",
-                        Address = "4F Bldg B, SM Megamall, Mandaluyong City",
-                        ContactNumber = "+63 2 8633 1122",
-                        Email = "megamall@leorevita.local",
+                        CompanyId = ccd.CompanyId,
+                        BranchCode = "CCD-MAT",
+                        BranchName = "Custom Crafters Davao - Matina Studio",
+                        Address = "McArthur Highway, Matina, Davao City",
+                        ContactNumber = "+63 82 299 8822",
+                        Email = "matina@customcrafters.ph",
                         IsMainBranch = false,
                         IsActive = true
                     }
                 );
-                await dbSalon.SaveChangesAsync();
+                await dbCcd.SaveChangesAsync();
             }
 
-            await SeedSalon200Async(dbSalon, salon.CompanyId);
-        }
-        catch { }
-
-        // -------------------------------------------------------------
-        // 7. SEED MISTER DONUT (200 Records)
-        // -------------------------------------------------------------
-        try
-        {
-            await using var dbDonut = await tenantFactory.CreateAsync(donut.CompanyId);
-            await dbDonut.Database.EnsureCreatedAsync();
-            await CRM.api.Endpoints.BranchEndpoints.EnsureBranchesTableExistsAsync(dbDonut);
-
-            if (!await dbDonut.Branches.AnyAsync())
-            {
-                dbDonut.Branches.AddRange(
-                    new Branch
-                    {
-                        CompanyId = donut.CompanyId,
-                        BranchCode = "MD-GH",
-                        BranchName = "Mister Donut - Greenhills Store",
-                        Address = "Ortigas Ave, Greenhills Shopping Center, San Juan",
-                        ContactNumber = "+63 2 8721 5566",
-                        Email = "greenhills@misterdonut.local",
-                        IsMainBranch = true,
-                        IsActive = true
-                    },
-                    new Branch
-                    {
-                        CompanyId = donut.CompanyId,
-                        BranchCode = "MD-ATC",
-                        BranchName = "Mister Donut - Alabang Town Center",
-                        Address = "Alabang-Zapote Rd, Muntinlupa City",
-                        ContactNumber = "+63 2 8807 9988",
-                        Email = "alabang@misterdonut.local",
-                        IsMainBranch = false,
-                        IsActive = true
-                    }
-                );
-                await dbDonut.SaveChangesAsync();
-            }
-
-            await SeedDonut200Async(dbDonut, donut.CompanyId);
+            await SeedCustomCrafters200Async(dbCcd, ccd.CompanyId);
         }
         catch { }
     }
 
     // =========================================================================
-    // SEED LEO REVITA SALON (200 Customers, 200 Projects, 200 Appointments/Quotes)
+    // SEED GLI BAHAY BUILDS (200 Customers, 200 Construction Builds, 200 Estimates)
     // =========================================================================
-    private static async Task SeedSalon200Async(TenantErpDbContext dbSalon, int companyId)
+    private static async Task SeedGliConstruction200Async(TenantErpDbContext dbGli, int companyId)
     {
-        int existingCount = await dbSalon.Customers.CountAsync();
+        int existingCount = await dbGli.Customers.CountAsync();
         var rng = new Random(101);
 
         // Shared name arrays – used by both Customer seeding and Leads seeding below
@@ -337,7 +385,7 @@ public static class CompanySeeder
         if (existingCount < 200)
         {
             string[] cities = { "Quezon City", "Makati City", "Taguig (BGC)", "Mandaluyong", "Pasig City", "San Juan", "Manila", "Alabang", "Paranaque", "Marikina" };
-            string[] types = { "VIP", "Regular", "Regular", "Regular", "Corporate", "Walk-in" };
+            string[] types = { "Developer", "Property Owner", "Commercial", "Residential Client" };
 
             var newCustomers = new List<Customer>();
             for (int i = existingCount + 1; i <= 200; i++)
@@ -360,43 +408,40 @@ public static class CompanySeeder
                     Address = $"{rng.Next(12, 850)} Katipunan Ave, {city}",
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow.AddDays(-rng.Next(10, 360)),
-                    Notes = cType == "VIP" ? "VIP member - prefers Senior Stylist" : "Preferred branch: SM North / Megamall"
+                    Notes = $"Property owner - {cType} build inquiry"
                 });
             }
 
-            dbSalon.Customers.AddRange(newCustomers);
-            await dbSalon.SaveChangesAsync();
+            dbGli.Customers.AddRange(newCustomers);
+            await dbGli.SaveChangesAsync();
         }
 
-        var allCustomers = await dbSalon.Customers.OrderBy(c => c.CustomerId).ToListAsync();
+        var allCustomers = await dbGli.Customers.OrderBy(c => c.CustomerId).ToListAsync();
 
-        // 2. Ensure 200 Salon Services / Projects
-        int existingProjects = await dbSalon.Projects.CountAsync();
+        // 2. Ensure 200 Construction Projects
+        int existingProjects = await dbGli.Projects.CountAsync();
         if (existingProjects < 200)
         {
-            string[] servicePackages = {
-                "Full Balayage & Ash Blonde Toner",
-                "Keratin Brazilian Blowout Therapy",
-                "Deluxe Bridal Hair & HD Makeup Package",
-                "Japanese Silk Rebonding & Moisture Lock",
-                "Scalp Detox & Hair Revitalization Spa",
-                "Signature Precision Layer Cut & Blowdry",
-                "Deep Conditioning Botanical Hair Spa",
-                "Korean C-Curl Digital Wave Perm",
-                "Color Correction & Platinum Highlights",
-                "Olaplex Complete Hair Bond Reconstruction",
-                "Express Gel Spa Manicure & Pedicure",
-                "Men's Executive Fade & Beard Grooming",
-                "Pastel Fashion Hair Color Transformation",
-                "Anti-Frizz Hair Botox Deep Treatment",
-                "Scalp Exfoliation & Anti-Dandruff Treatment"
+            string[] constructionPackages = {
+                "2-Storey Modern Residential Concrete Build",
+                "Bungalow Family Home Construction & Roofing",
+                "Structural Steel Framing & Foundation Pouring",
+                "Architectural Concrete Villa Construction",
+                "Commercial Building Perimeter & Civil Works",
+                "Multi-Level Townhouse Construction Project",
+                "Custom Duplex Residential Development",
+                "Full Turnkey House Construction & Turnover",
+                "Subdivision Model House Architectural Build",
+                "Perimeter Fence, Gate & Concrete Driveway Build",
+                "Reinforced Concrete Foundation & Retaining Wall",
+                "Commercial Warehouse Structural Build"
             };
 
             var newProjects = new List<Project>();
             for (int i = existingProjects + 1; i <= 200; i++)
             {
                 var cust = allCustomers[(i - 1) % allCustomers.Count];
-                string srv = servicePackages[rng.Next(servicePackages.Length)];
+                string srv = constructionPackages[rng.Next(constructionPackages.Length)];
                 int daysAgo = rng.Next(2, 340);
                 DateTime start = DateTime.UtcNow.AddDays(-daysAgo);
 
@@ -411,7 +456,7 @@ public static class CompanySeeder
                     status = "Completed";
                     stage = ProjectDesignStage.Completed;
                     progress = 100;
-                    compDate = start.AddDays(rng.Next(1, 4));
+                    compDate = start.AddDays(rng.Next(30, 90));
                 }
                 else if (roll < 90)
                 {
@@ -430,31 +475,31 @@ public static class CompanySeeder
                 {
                     CompanyId = companyId,
                     CustomerId = cust.CustomerId,
-                    ProjectCode = $"LRS-SRV-{i:D4}",
+                    ProjectCode = $"GLI-BLD-{i:D4}",
                     ProjectName = $"{cust.FirstName} {cust.LastName} - {srv}",
-                    ProjectType = "Salon Service",
-                    Location = cust.Address.Contains("Quezon") ? "SM North EDSA Branch" : "Megamall Branch",
-                    Description = $"{srv} requested by {cust.FirstName}. Customer type: {cust.CustomerType}",
+                    ProjectType = "Residential Construction",
+                    Location = cust.Address.Contains("Quezon") ? "Quezon City Construction Site" : "Makati Job Site",
+                    Description = $"{srv} for {cust.FirstName}. Account type: {cust.CustomerType}",
                     StartDate = start,
-                    TargetEndDate = start.AddDays(7),
+                    TargetEndDate = start.AddDays(120),
                     Status = status,
                     DesignStage = stage,
                     ProgressPercentage = progress,
                     DesignStartDate = start,
                     DesignCompletionDate = compDate,
                     IsActive = true,
-                    CreatedAt = start.AddDays(-2)
+                    CreatedAt = start.AddDays(-5)
                 });
             }
 
-            dbSalon.Projects.AddRange(newProjects);
-            await dbSalon.SaveChangesAsync();
+            dbGli.Projects.AddRange(newProjects);
+            await dbGli.SaveChangesAsync();
         }
 
-        var allProjects = await dbSalon.Projects.OrderBy(p => p.ProjectId).ToListAsync();
+        var allProjects = await dbGli.Projects.OrderBy(p => p.ProjectId).ToListAsync();
 
-        // 3. Ensure 200 Appointments / Quotations
-        int existingQuotes = await dbSalon.Quotations.CountAsync();
+        // 3. Ensure 200 Construction Estimates / Quotations
+        int existingQuotes = await dbGli.Quotations.CountAsync();
         if (existingQuotes < 200)
         {
             var newQuotes = new List<Quotation>();
@@ -463,9 +508,9 @@ public static class CompanySeeder
                 var proj = allProjects[(i - 1) % allProjects.Count];
                 var cust = allCustomers.FirstOrDefault(c => c.CustomerId == proj.CustomerId) ?? allCustomers[0];
 
-                decimal subtotal = rng.Next(18, 280) * 100m; // 1,800 to 28,000
-                decimal discount = rng.Next(10) == 0 ? 500m : (rng.Next(8) == 0 ? 1000m : 0m);
-                decimal total = Math.Max(1200m, subtotal - discount);
+                decimal subtotal = rng.Next(250, 4500) * 1000m; // 250,000 to 4,500,000
+                decimal discount = rng.Next(10) == 0 ? 25000m : 0m;
+                decimal total = Math.Max(200000m, subtotal - discount);
 
                 string qStatus;
                 string pStatus;
@@ -493,7 +538,7 @@ public static class CompanySeeder
                 newQuotes.Add(new Quotation
                 {
                     CompanyId = companyId,
-                    QuotationNumber = $"QUO-LR-2026-{i:D4}",
+                    QuotationNumber = $"QUO-GLI-2026-{i:D4}",
                     ProjectId = proj.ProjectId,
                     CustomerId = cust.CustomerId,
                     QuotationDate = proj.StartDate ?? DateTime.UtcNow.AddDays(-rng.Next(10, 300)),
@@ -504,28 +549,27 @@ public static class CompanySeeder
                     PaymentStatus = pStatus,
                     AmountPaid = paid,
                     DepositRequired = Math.Round(total * 0.3m, 2),
-                    PaymentMethod = pStatus != PaymentStatus.Pending ? (rng.Next(2) == 0 ? "GCash / Maya" : "Credit Card") : "Pending",
-                    Notes = $"Appointment booking for {proj.ProjectName}",
+                    PaymentMethod = pStatus != PaymentStatus.Pending ? (rng.Next(2) == 0 ? "Bank Transfer (BDO)" : "Corporate Check") : "Pending",
+                    Notes = $"Construction estimate for {proj.ProjectName}",
                     CreatedAt = proj.CreatedAt
                 });
             }
 
-            dbSalon.Quotations.AddRange(newQuotes);
-            await dbSalon.SaveChangesAsync();
+            dbGli.Quotations.AddRange(newQuotes);
+            await dbGli.SaveChangesAsync();
         }
 
         // 4. Ensure 50+ Feedback & Reviews
-        if (await dbSalon.ProjectFeedbacks.CountAsync() < 50)
+        if (await dbGli.ProjectFeedbacks.CountAsync() < 50)
         {
             string[] comments = {
-                "Loved the balayage color! Looked exactly like my Pinterest reference.",
-                "Super friendly senior stylists and very clean salon tools.",
-                "Keratin treatment made my frizzy hair so manageable and shiny.",
-                "Fast booking and no waiting in line at SM North branch.",
-                "The scalp massage was heaven! Definitely booking again next month.",
-                "Great service from start to finish. Highly recommended!",
-                "Haircut was very neat and professional. 5 stars!",
-                "Value for money package. Very satisfied with the result."
+                "Outstanding structural build quality. The engineers were on-site daily and provided transparent progress updates.",
+                "Turnkey residential construction was delivered right on time with flawless concrete and roofing works.",
+                "Superb engineering craftsmanship and strict adherence to structural safety standards.",
+                "Very clean job site and respectful construction crew. 5 stars!",
+                "Architectural blueprint translation into actual construction exceeded our expectations.",
+                "Professional project management and accurate bill of quantities with zero hidden costs.",
+                "Foundation and framing passed all municipal building inspections on first review."
             };
 
             var newFeedbacks = new List<ProjectFeedback>();
@@ -544,14 +588,14 @@ public static class CompanySeeder
                     SubmittedAt = proj.StartDate ?? DateTime.UtcNow.AddDays(-rng.Next(5, 200))
                 });
             }
-            dbSalon.ProjectFeedbacks.AddRange(newFeedbacks);
-            await dbSalon.SaveChangesAsync();
+            dbGli.ProjectFeedbacks.AddRange(newFeedbacks);
+            await dbGli.SaveChangesAsync();
         }
 
         // 5. Ensure 30+ Leads
-        if (await dbSalon.Leads.CountAsync() < 30)
+        if (await dbGli.Leads.CountAsync() < 30)
         {
-            string[] sources = { "Instagram", "Facebook Ads", "TikTok", "Referral", "Walk-In", "Google Search" };
+            string[] sources = { "Direct Inquiry", "Architectural Referral", "Website", "Site Banner", "Developer Network" };
             string[] statuses = { "New", "Contacted", "Qualified", "Proposal", "Won" };
 
             var newLeads = new List<Lead>();
@@ -568,76 +612,63 @@ public static class CompanySeeder
                     Phone = $"0918{rng.Next(1000000, 9999999)}",
                     Status = statuses[rng.Next(statuses.Length)],
                     LeadSource = sources[rng.Next(sources.Length)],
-                    Notes = "Interested in Bridal Hair & Makeup package / Balayage promo",
+                    Notes = "Interested in 2-Storey Turnkey House Construction / Architectural Blueprint",
                     CreatedAt = DateTime.UtcNow.AddDays(-rng.Next(1, 90))
                 });
             }
-            dbSalon.Leads.AddRange(newLeads);
-            await dbSalon.SaveChangesAsync();
+            dbGli.Leads.AddRange(newLeads);
+            await dbGli.SaveChangesAsync();
         }
     }
 
     // =========================================================================
-    // SEED MISTER DONUT (200 Customers, 200 Supply Contracts/Orders, 200 Invoices)
+    // SEED CUSTOM CRAFTERS DAVAO (200 Customers, 200 Renovation Projects, 200 Quotes)
     // =========================================================================
-    private static async Task SeedDonut200Async(TenantErpDbContext dbDonut, int companyId)
+    private static async Task SeedCustomCrafters200Async(TenantErpDbContext dbCcd, int companyId)
     {
-        int existingCount = await dbDonut.Customers.CountAsync();
+        int existingCount = await dbCcd.Customers.CountAsync();
         var rng = new Random(202);
+
+        string[] filipinoFirst = {
+            "Vicente", "Joey", "Vic", "Tito", "Francis", "Eduardo", "Ramon", "Jaime", "Manuel", "Antonio",
+            "Carlos", "Felipe", "Lorenzo", "Gabriel", "Mateo", "Enrico", "Dante", "Arthur", "Rolando", "Danilo",
+            "Maria", "Teresa", "Lourdes", "Carmela", "Corazon", "Esperanza", "Leticia", "Rosario", "Divina", "Josefina",
+            "Camille", "Bea", "Kathryn", "Sarah", "Marian", "Anne", "Nadine", "Liza", "Yassi", "Heart"
+        };
+
+        string[] filipinoLast = {
+            "Sotto", "De Leon", "Concepcion", "Zobel", "Ayala", "Cojuangco", "Gokongwei", "Sy", "Tan", "Lucio",
+            "Pangilinan", "Villar", "Razon", "Aboitiz", "Consunji", "Lopez", "Ortigas", "Araneta", "Tuason", "Roxas",
+            "Duterte", "Garcia", "Flores", "Lim", "Chua", "Yap", "Uy", "Villafuerte", "Alvarez", "Castillo"
+        };
+
+        string[] davaoLocations = {
+            "Lanang Executive Homes, Davao City",
+            "Abreeza Residences, Bajada, Davao City",
+            "Ecoland Phase 3, Davao City",
+            "Marfori Heights Subd, Davao City",
+            "Insular Village 1, Lanang, Davao City",
+            "Las Terrazas, Maa, Davao City",
+            "Woodridge Park Subd, Maa, Davao City",
+            "Damosa IT Park District, Davao City",
+            "Matina Enclaves, Davao City",
+            "Belisario Heights, Bajada, Davao City",
+            "Solariega Subd, Talomo, Davao City",
+            "One Oasis Condominiums, Ecoland, Davao City"
+        };
 
         if (existingCount < 200)
         {
-            string[] corporateClients = {
-                "San Miguel Foods Corp", "SM Megamall Supermarket", "Metro Bakeshop Distribution", "Robinsons Retail Stores",
-                "Sunrise Coffee Chain Hub", "Ateneo Campus Canteen", "BGC Tech Park Catering", "Shell Select North Kiosk",
-                "Caltex Star Mart Ortigas", "Greenhills Canteen Concessions", "Puregold Supermarket Hub", "7-Eleven Consignment Partner",
-                "Mini Stop Bulk Distribution", "UST Student Canteen Services", "Ayala Malls Event Center", "Makati Medical Center Cafe",
-                "St. Luke's Hospital Pantry", "Toyota Motors Employee Lounge", "Jollibee Corp Commissary", "San Miguel Brewery Canteen",
-                "BDO Unibank Tower Pantry", "Accenture BGC Employee Events", "Convergys Eastwood Cafeteria", "Teleperformance Ortigas Hub",
-                "Philippine Airlines Catering", "Globe Telecom Corporate Events", "PLDT Head Office Pantry", "De La Salle Greenhills Canteen",
-                "Megaworld Lifestyle Malls", "Filinvest Alabang Corporate Kiosk", "Universal Robina Commissary", "Monde Nissin Event Partners",
-                "Golden Arches Employee Hub", "Shopee Philippines Logistics Canteen", "Lazada Pasig Sorting Hub Cafe", "Grab Philippines HQ Pantry",
-                "Asian Hospital Wellness Cafe", "Medical City Pasig Food Court", "Unilever BGC Office Pantry", "Nestle Philippines Event Catering"
-            };
-
-            string[] filipinoFirst = {
-                "Vicente", "Joey", "Vic", "Tito", "Francis", "Eduardo", "Ramon", "Jaime", "Manuel", "Antonio",
-                "Carlos", "Felipe", "Lorenzo", "Gabriel", "Mateo", "Enrico", "Dante", "Arthur", "Rolando", "Danilo",
-                "Maria", "Teresa", "Lourdes", "Carmela", "Corazon", "Esperanza", "Leticia", "Rosario", "Divina", "Josefina"
-            };
-
-            string[] filipinoLast = {
-                "Sotto", "De Leon", "Concepcion", "Zobel", "Ayala", "Cojuangco", "Gokongwei", "Sy", "Tan", "Lucio",
-                "Pangilinan", "Villar", "Razon", "Aboitiz", "Consunji", "Lopez", "Ortigas", "Araneta", "Tuason", "Roxas"
-            };
-
-            string[] areas = { "Greenhills, San Juan", "Ortigas Center, Pasig", "Alabang Town Center", "BGC, Taguig", "Makati CBD", "Quezon City Hub", "Muntinlupa", "Mandaluyong", "Pasay", "Paranaque" };
-
             var newCustomers = new List<Customer>();
             for (int i = existingCount + 1; i <= 200; i++)
             {
-                string fn, ln, email, phone, cType;
-                if (i <= 110)
-                {
-                    // Corporate / Wholesale partners
-                    string corp = corporateClients[(i - 1) % corporateClients.Length];
-                    fn = corp;
-                    ln = "Accounts";
-                    email = $"orders.{corp.ToLower().Replace(" ", "").Replace(".", "")}{i}@corp.ph";
-                    phone = $"0917{rng.Next(1000000, 9999999)}";
-                    cType = (i % 2 == 0) ? "Corporate" : "Wholesale";
-                }
-                else
-                {
-                    // Franchisees / VIP retail bulk clients
-                    fn = filipinoFirst[rng.Next(filipinoFirst.Length)];
-                    ln = filipinoLast[rng.Next(filipinoLast.Length)];
-                    email = $"{fn.ToLower()}.{ln.ToLower()}{i}@donutvip.ph";
-                    phone = $"0918{rng.Next(1000000, 9999999)}";
-                    cType = (i % 3 == 0) ? "Franchisee" : ((i % 2 == 0) ? "VIP" : "Regular");
-                }
+                string fn = filipinoFirst[rng.Next(filipinoFirst.Length)];
+                string ln = filipinoLast[rng.Next(filipinoLast.Length)];
+                string email = $"{fn.ToLower()}.{ln.ToLower()}{i}@craftersdavao.ph";
+                string phone = $"0918{rng.Next(1000000, 9999999)}";
+                string cType = (i % 4 == 0) ? "Commercial" : ((i % 3 == 0) ? "Condo" : ((i % 2 == 0) ? "VIP Residential" : "Residential"));
+                string loc = davaoLocations[rng.Next(davaoLocations.Length)];
 
-                string area = areas[rng.Next(areas.Length)];
                 newCustomers.Add(new Customer
                 {
                     CompanyId = companyId,
@@ -646,79 +677,79 @@ public static class CompanySeeder
                     Email = email,
                     Phone = phone,
                     CustomerType = cType,
-                    Address = $"{rng.Next(10, 500)} Commercial Blvd, {area}",
+                    Address = $"{rng.Next(12, 888)} {loc}",
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow.AddDays(-rng.Next(15, 360)),
-                    Notes = cType == "Corporate" ? "Recurring weekly delivery contract" : "Preferred branch: Greenhills / Alabang"
+                    Notes = cType == "Commercial" ? "Commercial office / retail renovation client" : "Residential interior makeover & custom cabinetry"
                 });
             }
 
-            dbDonut.Customers.AddRange(newCustomers);
-            await dbDonut.SaveChangesAsync();
+            dbCcd.Customers.AddRange(newCustomers);
+            await dbCcd.SaveChangesAsync();
         }
 
-        var allCustomers = await dbDonut.Customers.OrderBy(c => c.CustomerId).ToListAsync();
+        var allCustomers = await dbCcd.Customers.OrderBy(c => c.CustomerId).ToListAsync();
 
-        // 2. Ensure 200 Wholesale Contracts / Catering Projects
-        int existingProjects = await dbDonut.Projects.CountAsync();
+        // 2. Ensure 200 Renovation Projects
+        int existingProjects = await dbCcd.Projects.CountAsync();
         if (existingProjects < 200)
         {
-            string[] orderTypes = {
-                "Bulk Bavarian Box (100 Dozens) Supply",
-                "Choco Butternut Holiday Box Bulk Consignment",
-                "Corporate Employee Appreciation Donut Tower (300 Pax)",
-                "Daily Campus Canteen Fresh Donut Consignment",
-                "Supermarket Kiosk Restocking & Display Batch",
-                "Smidgets Donut Bites Party Platters (1,500 pcs)",
-                "Piping Hot Brewed Coffee & Donut Pairing Breakfast",
-                "Custom Logo Branded Corporate Anniversary Donuts",
-                "Franchise Store Weekly Bavarian & Choco Restock",
-                "Weekend Mall Pop-up Kiosk Donut Supply Batch",
-                "School Graduation Donut Treat Boxes (500 units)",
-                "Office Monthly Birthday Donut Celebration Package"
+            string[] renovationTypes = {
+                "Modern Minimalist Kitchen Remodel & Custom Island",
+                "Luxury Master Bathroom & Walk-in Shower Makeover",
+                "2-Bedroom Condominium Full Interior Renovation",
+                "Living & Dining Room Open-Concept Transformation",
+                "Commercial Boutique Office Interior Fit-Out",
+                "Outdoor Patio & Lanai Timber Decking Upgrade",
+                "Custom Wardrobes & Master Bedroom Suite Renovation",
+                "Loft Apartment Mezzanine & Space Optimization",
+                "Whole-House Modern Acoustic Ceiling & Lighting Overhaul",
+                "Cafe & Bakery Interior Renovation & Bespoke Cabinetry",
+                "Home Theater & Entertainment Lounge Acoustic Fit-Out",
+                "Executive Penthouse Luxury Renovation & Tile Works"
             };
 
             var newProjects = new List<Project>();
             for (int i = existingProjects + 1; i <= 200; i++)
             {
                 var cust = allCustomers[(i - 1) % allCustomers.Count];
-                string ord = orderTypes[rng.Next(orderTypes.Length)];
-                int daysAgo = rng.Next(2, 340);
+                string reno = renovationTypes[rng.Next(renovationTypes.Length)];
+                int daysAgo = rng.Next(5, 340);
                 DateTime start = DateTime.UtcNow.AddDays(-daysAgo);
 
                 int roll = rng.Next(100);
-                string status = roll < 78 ? "Completed" : (roll < 92 ? "In Progress" : "Planning");
-                int progress = status == "Completed" ? 100 : (status == "In Progress" ? rng.Next(40, 85) : 20);
+                string status = roll < 70 ? "Completed" : (roll < 90 ? "In Progress" : "Planning");
+                int progress = status == "Completed" ? 100 : (status == "In Progress" ? rng.Next(35, 85) : 15);
 
                 newProjects.Add(new Project
                 {
                     CompanyId = companyId,
                     CustomerId = cust.CustomerId,
-                    ProjectCode = $"MD-ORD-{i:D4}",
-                    ProjectName = $"{cust.FirstName} - {ord}",
-                    ProjectType = "Donut Wholesale & Catering",
-                    Location = cust.Address.Contains("Greenhills") ? "Greenhills Hub" : "Alabang Hub",
-                    Description = $"{ord} for {cust.FirstName}. Account type: {cust.CustomerType}",
+                    ProjectCode = $"CCD-REN-{i:D4}",
+                    ProjectName = $"{cust.LastName} Residence - {reno}",
+                    ProjectType = "Interior Renovation & Remodeling",
+                    Location = cust.Address.Contains("Lanang") ? "Lanang Design Hub" : "Matina Studio",
+                    Description = $"{reno} for {cust.FirstName} {cust.LastName}. Client category: {cust.CustomerType}",
                     StartDate = start,
-                    TargetEndDate = start.AddDays(rng.Next(1, 5)),
+                    TargetEndDate = start.AddDays(rng.Next(20, 90)),
                     Status = status,
                     DesignStage = status == "Completed" ? ProjectDesignStage.Completed : ProjectDesignStage.InProgress,
                     ProgressPercentage = progress,
                     DesignStartDate = start,
-                    DesignCompletionDate = status == "Completed" ? start.AddDays(1) : null,
+                    DesignCompletionDate = status == "Completed" ? start.AddDays(rng.Next(15, 60)) : null,
                     IsActive = true,
-                    CreatedAt = start.AddDays(-1)
+                    CreatedAt = start.AddDays(-2)
                 });
             }
 
-            dbDonut.Projects.AddRange(newProjects);
-            await dbDonut.SaveChangesAsync();
+            dbCcd.Projects.AddRange(newProjects);
+            await dbCcd.SaveChangesAsync();
         }
 
-        var allProjects = await dbDonut.Projects.OrderBy(p => p.ProjectId).ToListAsync();
+        var allProjects = await dbCcd.Projects.OrderBy(p => p.ProjectId).ToListAsync();
 
-        // 3. Ensure 200 Wholesale Invoices / Quotations
-        int existingQuotes = await dbDonut.Quotations.CountAsync();
+        // 3. Ensure 200 Renovation Quotations
+        int existingQuotes = await dbCcd.Quotations.CountAsync();
         if (existingQuotes < 200)
         {
             var newQuotes = new List<Quotation>();
@@ -727,9 +758,9 @@ public static class CompanySeeder
                 var proj = allProjects[(i - 1) % allProjects.Count];
                 var cust = allCustomers.FirstOrDefault(c => c.CustomerId == proj.CustomerId) ?? allCustomers[0];
 
-                decimal subtotal = rng.Next(45, 950) * 100m; // 4,500 to 95,000
-                decimal discount = rng.Next(5) == 0 ? rng.Next(5, 30) * 100m : 0m;
-                decimal total = Math.Max(3500m, subtotal - discount);
+                decimal subtotal = rng.Next(75, 850) * 1000m; // 75,000 to 850,000
+                decimal discount = rng.Next(4) == 0 ? rng.Next(10, 40) * 1000m : 0m;
+                decimal total = Math.Max(50000m, subtotal - discount);
 
                 string qStatus = proj.Status == "Completed" ? QuotationStatus.Accepted : (proj.Status == "In Progress" ? QuotationStatus.Accepted : QuotationStatus.Issued);
                 string pStatus = proj.Status == "Completed" ? PaymentStatus.FullyPaid : (proj.Status == "In Progress" ? PaymentStatus.DepositReceived : PaymentStatus.Pending);
@@ -738,7 +769,7 @@ public static class CompanySeeder
                 newQuotes.Add(new Quotation
                 {
                     CompanyId = companyId,
-                    QuotationNumber = $"MD-INV-2026-{i:D4}",
+                    QuotationNumber = $"CCD-Q-2026-{i:D4}",
                     ProjectId = proj.ProjectId,
                     CustomerId = cust.CustomerId,
                     QuotationDate = proj.StartDate ?? DateTime.UtcNow.AddDays(-rng.Next(5, 320)),
@@ -749,36 +780,36 @@ public static class CompanySeeder
                     PaymentStatus = pStatus,
                     AmountPaid = paid,
                     DepositRequired = Math.Round(total * 0.3m, 2),
-                    PaymentMethod = pStatus != PaymentStatus.Pending ? (rng.Next(2) == 0 ? "Bank Transfer (BDO)" : "Corporate Check") : "Pending",
-                    Notes = $"Wholesale invoice for {proj.ProjectName}",
+                    PaymentMethod = pStatus != PaymentStatus.Pending ? (rng.Next(2) == 0 ? "Bank Transfer (BDO Davao)" : "Manager Check") : "Pending",
+                    Notes = $"Renovation estimate for {proj.ProjectName}",
                     CreatedAt = proj.CreatedAt
                 });
             }
 
-            dbDonut.Quotations.AddRange(newQuotes);
-            await dbDonut.SaveChangesAsync();
+            dbCcd.Quotations.AddRange(newQuotes);
+            await dbCcd.SaveChangesAsync();
         }
 
-        // 4. Ensure 25+ Promotional Campaigns
-        if (await dbDonut.Promotions.CountAsync() < 25)
+        // 4. Ensure 25+ Promotional Renovation Packages
+        if (await dbCcd.Promotions.CountAsync() < 25)
         {
             var promos = new List<Promotion>
             {
-                new() { CompanyId = companyId, Name = "Bavarian Donut Buy 1 Take 1", Code = "MD-BAV2026", OfferType = "Percentage", OfferValue = 50m, TargetSegment = "All Clients", Description = "Buy 1 dozen Bavarian and get 1 dozen free.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-30), ValidUntil = DateTime.UtcNow.AddMonths(3) },
-                new() { CompanyId = companyId, Name = "20% Off Bavarian Box of 12", Code = "MD-DOZEN20", OfferType = "Percentage", OfferValue = 20m, TargetSegment = "Loyal", Description = "Exclusive 20% discount coupon for loyal customers.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-20), ValidUntil = DateTime.UtcNow.AddMonths(2) },
-                new() { CompanyId = companyId, Name = "Free Brewed Coffee with 6 Donuts", Code = "MD-FREECOFFEE", OfferType = "FreeService", OfferValue = 85m, TargetSegment = "Champion", Description = "Complimentary piping hot brewed coffee on every half-dozen box.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-15), ValidUntil = DateTime.UtcNow.AddMonths(3) },
-                new() { CompanyId = companyId, Name = "Weekend Donut Party Pack ₱150 Off", Code = "MD-PARTY150", OfferType = "FixedAmount", OfferValue = 150m, TargetSegment = "At Risk", Description = "Re-engagement offer for dormant accounts: ₱150 off on Party Pack.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-10), ValidUntil = DateTime.UtcNow.AddMonths(1) },
-                new() { CompanyId = companyId, Name = "Corporate Catering 15% Rebate", Code = "MD-CORP15", OfferType = "Percentage", OfferValue = 15m, TargetSegment = "Champion", Description = "15% rebate on all bulk corporate catering exceeding ₱20,000.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-40), ValidUntil = DateTime.UtcNow.AddMonths(6) },
-                new() { CompanyId = companyId, Name = "Choco Butternut Holiday Box ₱200 Off", Code = "MD-CHOCO200", OfferType = "FixedAmount", OfferValue = 200m, TargetSegment = "Loyal", Description = "₱200 voucher on holiday premium Choco Butternut tins.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-5), ValidUntil = DateTime.UtcNow.AddMonths(2) },
-                new() { CompanyId = companyId, Name = "Smidgets Bite-Sized Party 25% Off", Code = "MD-SMIDGETS25", OfferType = "Percentage", OfferValue = 25m, TargetSegment = "Promising", Description = "25% discount on 100-pc Smidgets party buckets.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-12), ValidUntil = DateTime.UtcNow.AddMonths(2) },
-                new() { CompanyId = companyId, Name = "Campus Wholesale Special ₱300 Off", Code = "MD-CAMPUS300", OfferType = "FixedAmount", OfferValue = 300m, TargetSegment = "All Clients", Description = "₱300 subsidy on campus canteen wholesale consignments.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-25), ValidUntil = DateTime.UtcNow.AddMonths(4) }
+                new() { CompanyId = companyId, Name = "Full Kitchen Cabinetry 10% Bundle Discount", Code = "CCD-KIT10", OfferType = "Percentage", OfferValue = 10m, TargetSegment = "All Clients", Description = "10% discount on complete kitchen modular cabinetry fit-outs.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-30), ValidUntil = DateTime.UtcNow.AddMonths(3) },
+                new() { CompanyId = companyId, Name = "Condo Interior Fit-Out Package ₱25,000 Off", Code = "CCD-CONDO25", OfferType = "FixedAmount", OfferValue = 25000m, TargetSegment = "Loyal", Description = "Exclusive ₱25,000 discount voucher on condominium turnkey renovations.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-20), ValidUntil = DateTime.UtcNow.AddMonths(2) },
+                new() { CompanyId = companyId, Name = "Free 3D Architectural Visualization & Spatial Design", Code = "CCD-FREE3D", OfferType = "FreeService", OfferValue = 18000m, TargetSegment = "Champion", Description = "Complimentary high-definition 3D rendering package with approved quote.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-15), ValidUntil = DateTime.UtcNow.AddMonths(3) },
+                new() { CompanyId = companyId, Name = "Master Bathroom Tile & Waterproofing ₱15,000 Off", Code = "CCD-BATH15", OfferType = "FixedAmount", OfferValue = 15000m, TargetSegment = "At Risk", Description = "₱15,000 subsidy on comprehensive bathroom renovation and waterproofing.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-10), ValidUntil = DateTime.UtcNow.AddMonths(1) },
+                new() { CompanyId = companyId, Name = "Commercial Office Fit-Out ₱50,000 Rebate", Code = "CCD-CORP50", OfferType = "FixedAmount", OfferValue = 50000m, TargetSegment = "Champion", Description = "₱50,000 rebate on commercial fit-outs exceeding ₱500,000.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-40), ValidUntil = DateTime.UtcNow.AddMonths(6) },
+                new() { CompanyId = companyId, Name = "Whole-Home Custom Wardrobes 12% Off", Code = "CCD-WARD12", OfferType = "Percentage", OfferValue = 12m, TargetSegment = "Loyal", Description = "12% off built-in master wardrobes and walk-in closet configurations.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-5), ValidUntil = DateTime.UtcNow.AddMonths(2) },
+                new() { CompanyId = companyId, Name = "Lanai & Decking Summer Renovation Special", Code = "CCD-DECK20", OfferType = "Percentage", OfferValue = 15m, TargetSegment = "Promising", Description = "15% discount on composite timber decking and outdoor pergolas.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-12), ValidUntil = DateTime.UtcNow.AddMonths(2) },
+                new() { CompanyId = companyId, Name = "Early Bird Renovation Booking ₱20,000 Voucher", Code = "CCD-EARLY20", OfferType = "FixedAmount", OfferValue = 20000m, TargetSegment = "All Clients", Description = "₱20,000 gift voucher for renovations scheduled 60 days in advance.", IsActive = true, ValidFrom = DateTime.UtcNow.AddDays(-25), ValidUntil = DateTime.UtcNow.AddMonths(4) }
             };
-            dbDonut.Promotions.AddRange(promos);
-            await dbDonut.SaveChangesAsync();
+            dbCcd.Promotions.AddRange(promos);
+            await dbCcd.SaveChangesAsync();
         }
 
         // 5. Ensure 60+ Customer Retention Actions (RFM Segments)
-        if (await dbDonut.RetentionActions.CountAsync() < 60)
+        if (await dbCcd.RetentionActions.CountAsync() < 60)
         {
             string[] segments = { "Champion", "Loyal", "Promising", "At Risk", "Dormant" };
             string[] rStatuses = { "Logged", "Contacted", "Redeemed", "Pending" };
@@ -796,17 +827,17 @@ public static class CompanySeeder
                     CustomerId = cust.CustomerId,
                     Segment = seg,
                     OfferType = (i % 2 == 0) ? "FixedAmount" : "Percentage",
-                    OfferValue = (i % 2 == 0) ? 200m : 15m,
-                    OfferDescription = $"Exclusive {seg} client reward: " + ((i % 2 == 0) ? "₱200 voucher" : "15% discount on bulk re-order"),
-                    Notes = $"Retention initiative for {cust.FirstName}. Status: {st}",
+                    OfferValue = (i % 2 == 0) ? 15000m : 10m,
+                    OfferDescription = $"Exclusive {seg} homeowner reward: " + ((i % 2 == 0) ? "₱15,000 renovation voucher" : "10% discount on next room remodel"),
+                    Notes = $"Post-renovation warranty & follow-up for {cust.LastName} residence. Status: {st}",
                     Status = st,
                     CreatedByUserId = "System",
                     CreatedAt = DateTime.UtcNow.AddDays(-rng.Next(1, 120))
                 });
             }
 
-            dbDonut.RetentionActions.AddRange(newRetentions);
-            await dbDonut.SaveChangesAsync();
+            dbCcd.RetentionActions.AddRange(newRetentions);
+            await dbCcd.SaveChangesAsync();
         }
     }
 }

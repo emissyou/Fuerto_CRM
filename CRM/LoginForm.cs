@@ -661,8 +661,23 @@ public partial class LoginForm : Form
                 }
             }
 
-            Session.CurrentBranchId = null;
-            Session.CurrentBranchName = "All Branches";
+            if (root.TryGetProperty("branchId", out var bIdProp) && bIdProp.ValueKind == JsonValueKind.Number)
+            {
+                Session.CurrentBranchId = bIdProp.GetInt32();
+            }
+            else
+            {
+                Session.CurrentBranchId = null;
+            }
+
+            if (root.TryGetProperty("branchName", out var bNameProp) && bNameProp.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(bNameProp.GetString()))
+            {
+                Session.CurrentBranchName = bNameProp.GetString();
+            }
+            else
+            {
+                Session.CurrentBranchName = Session.CurrentBranchId.HasValue ? $"Branch #{Session.CurrentBranchId.Value}" : "All Branches";
+            }
             Session.IsOffline = false;
 
             bool hasAccepted = true;

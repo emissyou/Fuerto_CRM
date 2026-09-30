@@ -77,8 +77,8 @@ public class TenantDbContextFactory : ITenantDbContextFactory
                 localDbName = companyId switch
                 {
                     1 => "CRM_Fuerto",
-                    2 => "CRM_LRSalon",
-                    3 => "CRM_MrDonut",
+                    2 => "CRM_GILBB",
+                    3 => "CRM_CCDavao",
                     _ => $"CRM_Tenant_{companyId}"
                 };
             }

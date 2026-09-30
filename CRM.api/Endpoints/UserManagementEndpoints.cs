@@ -63,7 +63,8 @@ public static class UserManagementEndpoints
                     fullName = string.IsNullOrWhiteSpace(u.FullName) ? u.Email : u.FullName,
                     companyId = u.CompanyId,
                     role,
-                    isActive = !u.LockoutEnd.HasValue || u.LockoutEnd.Value <= DateTimeOffset.UtcNow
+                    isActive = !u.LockoutEnd.HasValue || u.LockoutEnd.Value <= DateTimeOffset.UtcNow,
+                    branchId = u.BranchId
                 });
             }
 
@@ -120,7 +121,8 @@ public static class UserManagementEndpoints
                 fullName = user.FullName,
                 companyId = user.CompanyId,
                 role,
-                isActive = !user.LockoutEnd.HasValue || user.LockoutEnd.Value <= DateTimeOffset.UtcNow
+                isActive = !user.LockoutEnd.HasValue || user.LockoutEnd.Value <= DateTimeOffset.UtcNow,
+                branchId = user.BranchId
             });
         });
 
@@ -189,7 +191,8 @@ public static class UserManagementEndpoints
                 Email = request.Email.Trim(),
                 EmailConfirmed = true,
                 FullName = string.IsNullOrWhiteSpace(request.FullName) ? request.Email.Trim() : request.FullName.Trim(),
-                CompanyId = companyId
+                CompanyId = companyId,
+                BranchId = request.BranchId
             };
 
             var result = await userManager.CreateAsync(user, request.Password);
@@ -297,6 +300,7 @@ public static class UserManagementEndpoints
             }
 
             user.FullName = string.IsNullOrWhiteSpace(request.FullName) ? user.Email ?? "" : request.FullName.Trim();
+            user.BranchId = request.BranchId;
 
             if (request.IsActive)
                 user.LockoutEnd = null;
