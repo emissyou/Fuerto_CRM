@@ -128,12 +128,7 @@ public static class CompanySeeder
                 });
                 await masterDb.SaveChangesAsync();
             }
-            else if (sub.AvailedModules != modules)
-            {
-                sub.AvailedModules = modules;
-                sub.PlanName = plan;
-                await masterDb.SaveChangesAsync();
-            }
+            // If already seeded, preserve Super Admin's configuration and do not overwrite
         }
 
         // Fuerto: All modules + Branching
@@ -290,6 +285,8 @@ public static class CompanySeeder
                     await dbFuerto.SaveChangesAsync();
                 }
             }
+
+            await SeedInventoryAndSuppliersAsync(dbFuerto, fuerto.CompanyId, "FUERTO");
         }
         catch { }
 
@@ -302,14 +299,26 @@ public static class CompanySeeder
             await dbGli.Database.EnsureCreatedAsync();
             await CRM.api.Endpoints.BranchEndpoints.EnsureBranchesTableExistsAsync(dbGli);
 
-            // Ensure branches are completely removed for GLI Bahay Builds
-            if (await dbGli.Branches.AnyAsync())
+            // If GLI has no branches yet, seed default main headquarters branch
+            if (!await dbGli.Branches.AnyAsync())
             {
-                dbGli.Branches.RemoveRange(dbGli.Branches);
+                dbGli.Branches.Add(new Branch
+                {
+                    CompanyId = gli.CompanyId,
+                    BranchCode = "GLI-HQ",
+                    BranchName = "GLI Bahay Builds - Main Operations HQ",
+                    Address = "Km 7, Lanang, Davao City",
+                    ContactNumber = "+63 82 288 9001",
+                    Email = "hq@glibuilds.local",
+                    IsMainBranch = true,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                });
                 await dbGli.SaveChangesAsync();
             }
 
             await SeedGliConstruction200Async(dbGli, gli.CompanyId);
+            await SeedInventoryAndSuppliersAsync(dbGli, gli.CompanyId, "GILBB");
         }
         catch { }
 
@@ -352,6 +361,7 @@ public static class CompanySeeder
             }
 
             await SeedCustomCrafters200Async(dbCcd, ccd.CompanyId);
+            await SeedInventoryAndSuppliersAsync(dbCcd, ccd.CompanyId, "CCDAVAO");
         }
         catch { }
     }
@@ -839,5 +849,98 @@ public static class CompanySeeder
             dbCcd.RetentionActions.AddRange(newRetentions);
             await dbCcd.SaveChangesAsync();
         }
+    }
+
+    private static async Task SeedInventoryAndSuppliersAsync(TenantErpDbContext db, int companyId, string companyCode)
+    {
+        try
+        {
+            if (!await db.Suppliers.AnyAsync())
+            {
+                if (companyCode.Equals("GILBB", StringComparison.OrdinalIgnoreCase))
+                {
+                    db.Suppliers.AddRange(
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-GLI-01", SupplierName = "Davao Steel & Rebar Corp", ContactPerson = "Engr. Ramon Dela Cruz", ContactNumber = "+63 82 291 0011", EmailAddress = "sales@davaosteel.ph", Address = "Panacan, Davao City", IsActive = true },
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-GLI-02", SupplierName = "Mindanao Ready-Mix Concrete Solutions", ContactPerson = "Marco Gutierrez", ContactNumber = "+63 82 291 0022", EmailAddress = "orders@mindanaoconcrete.ph", Address = "Buhangin, Davao City", IsActive = true },
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-GLI-03", SupplierName = "Apo Cement & Aggregates Supply", ContactPerson = "Grace Tan", ContactNumber = "+63 82 291 0033", EmailAddress = "sales@apocement.ph", Address = "Toril, Davao City", IsActive = true },
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-GLI-04", SupplierName = "Pioneer Hardware & Heavy Lumber", ContactPerson = "David Sy", ContactNumber = "+63 82 291 0044", EmailAddress = "orders@pioneerhardware.ph", Address = "Agdao, Davao City", IsActive = true }
+                    );
+                }
+                else if (companyCode.Equals("CCDAVAO", StringComparison.OrdinalIgnoreCase))
+                {
+                    db.Suppliers.AddRange(
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-CCD-01", SupplierName = "Matina Woodworks & Architectural Timber", ContactPerson = "Nestor Alvarez", ContactNumber = "+63 82 299 1101", EmailAddress = "sales@matinawood.ph", Address = "Matina, Davao City", IsActive = true },
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-CCD-02", SupplierName = "Davao Granite, Quartz & Tile Depot", ContactPerson = "Elena Lim", ContactNumber = "+63 82 299 1102", EmailAddress = "orders@davaotiles.ph", Address = "Lanang, Davao City", IsActive = true },
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-CCD-03", SupplierName = "Southern Finish Paints & Premium Coatings", ContactPerson = "Arthur Santos", ContactNumber = "+63 82 299 1103", EmailAddress = "info@southernfinish.ph", Address = "Bajada, Davao City", IsActive = true },
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-CCD-04", SupplierName = "Craftsman Cabinet Fittings & Hardware", ContactPerson = "Lito Reyes", ContactNumber = "+63 82 299 1104", EmailAddress = "sales@craftsmanhardware.ph", Address = "Ecoland, Davao City", IsActive = true }
+                    );
+                }
+                else
+                {
+                    db.Suppliers.AddRange(
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-FTO-01", SupplierName = "Makati Designer Fabric & Drapery Hub", ContactPerson = "Cecilia Soriano", ContactNumber = "+63 2 8888 2001", EmailAddress = "sales@makatifabrics.ph", Address = "Pasong Tamo, Makati City", IsActive = true },
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-FTO-02", SupplierName = "BGC Luxury Architectural Lighting", ContactPerson = "Victor Cheng", ContactNumber = "+63 2 8888 2002", EmailAddress = "projects@bgclighting.ph", Address = "Bonifacio Global City, Taguig", IsActive = true },
+                        new Supplier { CompanyId = companyId, SupplierCode = "SUP-FTO-03", SupplierName = "Metro Architectural Glass & Mirror", ContactPerson = "Anthony Go", ContactNumber = "+63 2 8888 2003", EmailAddress = "info@metroglass.ph", Address = "Ortigas Center, Pasig City", IsActive = true }
+                    );
+                }
+                await db.SaveChangesAsync();
+            }
+
+            if (!await db.Inventories.AnyAsync())
+            {
+                if (companyCode.Equals("GILBB", StringComparison.OrdinalIgnoreCase))
+                {
+                    var p1 = new Product { CompanyId = companyId, ProductCode = "MAT-CMT-01", ProductName = "Portland Cement Type 1 (40kg bag)", UnitPrice = 245.00m };
+                    var p2 = new Product { CompanyId = companyId, ProductCode = "MAT-RBR-01", ProductName = "Deformed Rebar 12mm x 6m Grade 40", UnitPrice = 285.00m };
+                    var p3 = new Product { CompanyId = companyId, ProductCode = "MAT-CHB-01", ProductName = "Concrete Hollow Blocks 4-inch Standard", UnitPrice = 18.50m };
+                    var p4 = new Product { CompanyId = companyId, ProductCode = "MAT-SND-01", ProductName = "Washed Aggregates Sand & Gravel (cu.m)", UnitPrice = 1200.00m };
+                    var p5 = new Product { CompanyId = companyId, ProductCode = "MAT-STL-01", ProductName = "Structural Steel I-Beam 6x4 (per length)", UnitPrice = 4500.00m };
+                    db.Products.AddRange(p1, p2, p3, p4, p5);
+                    await db.SaveChangesAsync();
+
+                    db.Inventories.AddRange(
+                        new Inventory { ProductId = p1.ProductId, QuantityOnHand = 450, ReorderLevel = 100, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p2.ProductId, QuantityOnHand = 320, ReorderLevel = 80, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p3.ProductId, QuantityOnHand = 2500, ReorderLevel = 500, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p4.ProductId, QuantityOnHand = 75, ReorderLevel = 20, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p5.ProductId, QuantityOnHand = 40, ReorderLevel = 15, LastUpdatedAt = DateTime.UtcNow }
+                    );
+                }
+                else if (companyCode.Equals("CCDAVAO", StringComparison.OrdinalIgnoreCase))
+                {
+                    var p1 = new Product { CompanyId = companyId, ProductCode = "RNV-PLY-01", ProductName = "Marine Plywood 3/4-inch 4x8 Hardwood", UnitPrice = 1350.00m };
+                    var p2 = new Product { CompanyId = companyId, ProductCode = "RNV-LAM-01", ProductName = "High-Pressure Laminate Sheets (Teak finish)", UnitPrice = 980.00m };
+                    var p3 = new Product { CompanyId = companyId, ProductCode = "RNV-PNT-01", ProductName = "Semi-Gloss Interior Acrylic Latex (16L)", UnitPrice = 3200.00m };
+                    var p4 = new Product { CompanyId = companyId, ProductCode = "RNV-HNG-01", ProductName = "Soft-Close Cabinet Concealed Hinges (pair)", UnitPrice = 180.00m };
+                    var p5 = new Product { CompanyId = companyId, ProductCode = "RNV-TLE-01", ProductName = "Polished Porcelain Floor Tiles 60x60 (box)", UnitPrice = 850.00m };
+                    db.Products.AddRange(p1, p2, p3, p4, p5);
+                    await db.SaveChangesAsync();
+
+                    db.Inventories.AddRange(
+                        new Inventory { ProductId = p1.ProductId, QuantityOnHand = 85, ReorderLevel = 25, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p2.ProductId, QuantityOnHand = 60, ReorderLevel = 15, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p3.ProductId, QuantityOnHand = 35, ReorderLevel = 10, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p4.ProductId, QuantityOnHand = 180, ReorderLevel = 50, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p5.ProductId, QuantityOnHand = 240, ReorderLevel = 60, LastUpdatedAt = DateTime.UtcNow }
+                    );
+                }
+                else
+                {
+                    var p1 = new Product { CompanyId = companyId, ProductCode = "DSG-LED-01", ProductName = "Recessed Dimmable LED Spotlights 12W", UnitPrice = 750.00m };
+                    var p2 = new Product { CompanyId = companyId, ProductCode = "DSG-WLL-01", ProductName = "Acoustic Wall Paneling (Walnut Veneer)", UnitPrice = 2800.00m };
+                    var p3 = new Product { CompanyId = companyId, ProductCode = "DSG-MRB-01", ProductName = "Italian Calacatta Marble Tiles 80x80", UnitPrice = 3500.00m };
+                    db.Products.AddRange(p1, p2, p3);
+                    await db.SaveChangesAsync();
+
+                    db.Inventories.AddRange(
+                        new Inventory { ProductId = p1.ProductId, QuantityOnHand = 120, ReorderLevel = 30, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p2.ProductId, QuantityOnHand = 50, ReorderLevel = 15, LastUpdatedAt = DateTime.UtcNow },
+                        new Inventory { ProductId = p3.ProductId, QuantityOnHand = 90, ReorderLevel = 20, LastUpdatedAt = DateTime.UtcNow }
+                    );
+                }
+                await db.SaveChangesAsync();
+            }
+        }
+        catch { }
     }
 }

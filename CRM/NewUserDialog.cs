@@ -55,7 +55,7 @@ public class NewUserDialog : CrmModalDialog
 
         _cmbRole = AddDropdownField("Account Role *", availableRoles, required: true);
 
-        if (!isSuperAdmin && !CompanyTerminology.IsGilbb && !CompanyTerminology.IsCcdavao)
+        if (!isSuperAdmin && Session.HasModule("Branching"))
         {
             _cmbBranch = AddDropdownField("Assigned Branch", new object[]
             {

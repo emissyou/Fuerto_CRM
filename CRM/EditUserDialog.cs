@@ -13,10 +13,12 @@ public class EditUserDialog : CrmModalDialog
     private readonly string _apiUrl;
     private readonly HttpClient _http;
     private readonly string _userId;
+    private readonly int _targetCompanyId;
     private readonly int? _initialBranchId;
 
     private readonly TextBox _txtFullName;
     private readonly TextBox _txtEmail;
+    private readonly TextBox _txtPassword;
     private readonly ComboBox _cmbRole;
     private readonly ComboBox? _cmbBranch;
     private readonly CheckBox _chkActive;
@@ -30,15 +32,31 @@ public class EditUserDialog : CrmModalDialog
 
     public EditUserDialog(string apiUrl, HttpClient http, JsonElement user)
         : base(
-            title: (Session.Roles?.Contains("Super Admin") ?? false) ? "Edit Company Admin" : "Edit User Account",
-            subtitle: "Update account profile details, branch assignment, system permissions, and active status.",
+            title: (Session.Roles?.Contains("Super Admin") ?? false) ? "Edit Company Admin Credentials" : "Edit User Account",
+            subtitle: (Session.Roles?.Contains("Super Admin") ?? false) 
+                ? "Update administrator full name, login email, password, and operational status."
+                : "Update account profile details, branch assignment, system permissions, and active status.",
             actionText: "Save Changes",
-            iconSymbol: "✎",
+            iconSymbol: (Session.Roles?.Contains("Super Admin") ?? false) ? "🔑" : "✎",
             dialogWidth: 540)
     {
         _apiUrl = apiUrl;
         _http = http;
         _userId = GetStr(user, "userId");
+
+        // Resolve target company ID from user object (essential when Super Admin manages tenant users)
+        if (user.TryGetProperty("companyId", out var cid) && cid.ValueKind == JsonValueKind.Number)
+        {
+            _targetCompanyId = cid.GetInt32();
+        }
+        else if (int.TryParse(GetStr(user, "companyId", "CompanyId"), out var parsedCid))
+        {
+            _targetCompanyId = parsedCid;
+        }
+        else
+        {
+            _targetCompanyId = Session.CompanyId ?? 1;
+        }
 
         if (user.TryGetProperty("branchId", out var bid) && bid.ValueKind == JsonValueKind.Number)
         {
@@ -57,6 +75,12 @@ public class EditUserDialog : CrmModalDialog
         _txtFullName.Text = GetStr(user, "fullName");
         _txtEmail.Text = GetStr(user, "email");
 
+        // Direct Password Reset / Update Field
+        _txtPassword = AddTextField(
+            actorIsSuperAdmin ? "New Password (leave blank to keep current) *" : "Update Password (leave blank to keep current)",
+            "•••••••• (min. 6 characters)");
+        _txtPassword.UseSystemPasswordChar = true;
+
         var currentRole = GetStr(user, "role");
         var availableRoles = actorIsSuperAdmin ? new object[] { "Admin" }
                            : actorIsCompanyAdmin ? new object[] { "Manager", "Staff" }
@@ -67,7 +91,13 @@ public class EditUserDialog : CrmModalDialog
         if (idx >= 0) _cmbRole.SelectedIndex = idx;
         else _cmbRole.SelectedIndex = 0;
 
-        if (!actorIsSuperAdmin && !CompanyTerminology.IsGilbb && !CompanyTerminology.IsCcdavao)
+        if (actorIsSuperAdmin)
+        {
+            // Super Admin only manages Company Admins
+            _cmbRole.Enabled = false;
+        }
+
+        if (!actorIsSuperAdmin && Session.HasModule("Branching"))
         {
             _cmbBranch = AddDropdownField("Assigned Branch", new object[]
             {
@@ -76,7 +106,7 @@ public class EditUserDialog : CrmModalDialog
             _ = LoadBranchesAsync();
         }
 
-        _chkActive = AddCheckboxField("Active Account Status", GetBool(user, "isActive"));
+        _chkActive = AddCheckboxField("Active Account Status (Permits Login)", GetBool(user, "isActive"));
 
         SubmitButton.Click += async (_, _) => await SaveAsync();
     }
@@ -84,10 +114,9 @@ public class EditUserDialog : CrmModalDialog
     private async Task LoadBranchesAsync()
     {
         if (_cmbBranch == null) return;
-        int companyId = Session.CompanyId ?? 1;
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, $"{_apiUrl}/tenant/{companyId}/branches");
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{_apiUrl}/tenant/{_targetCompanyId}/branches");
             if (!string.IsNullOrWhiteSpace(Session.Token))
                 req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
 
@@ -145,6 +174,14 @@ public class EditUserDialog : CrmModalDialog
             return;
         }
 
+        string newPassword = _txtPassword.Text.Trim();
+        if (!string.IsNullOrEmpty(newPassword) && newPassword.Length < 6)
+        {
+            MessageBox.Show("New password must be at least 6 characters long.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            DialogResult = DialogResult.None;
+            return;
+        }
+
         SubmitButton.Enabled = false;
         SubmitButton.Text = "Saving...";
 
@@ -158,10 +195,11 @@ public class EditUserDialog : CrmModalDialog
                 fullName = _txtFullName.Text.Trim(),
                 role = _cmbRole.SelectedItem?.ToString() ?? "Staff",
                 isActive = _chkActive.Checked,
-                branchId = branchId
+                branchId = branchId,
+                newPassword = string.IsNullOrEmpty(newPassword) ? null : newPassword
             };
 
-            var url = $"{_apiUrl}/tenant/{Session.CompanyId}/users/{_userId}";
+            var url = $"{_apiUrl}/tenant/{_targetCompanyId}/users/{_userId}";
             using var req = new HttpRequestMessage(HttpMethod.Put, url);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
             req.Content = new StringContent(
@@ -197,10 +235,14 @@ public class EditUserDialog : CrmModalDialog
         }
     }
 
-    private static string GetStr(JsonElement el, string name)
+    private static string GetStr(JsonElement el, params string[] names)
     {
-        if (!el.TryGetProperty(name, out var p)) return "";
-        return p.ValueKind == JsonValueKind.String ? p.GetString() ?? "" : p.ToString();
+        foreach (var name in names)
+        {
+            if (el.TryGetProperty(name, out var p) && p.ValueKind != JsonValueKind.Null)
+                return p.ValueKind == JsonValueKind.String ? p.GetString() ?? "" : p.ToString();
+        }
+        return "";
     }
 
     private static bool GetBool(JsonElement el, string name)

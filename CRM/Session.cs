@@ -30,6 +30,20 @@ public static class Session
         if (AvailedModules.Equals("All", StringComparison.OrdinalIgnoreCase)) return true;
 
         var modules = AvailedModules.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        return modules.Any(m => m.Equals(moduleName, StringComparison.OrdinalIgnoreCase));
+        return modules.Any(m =>
+            m.Equals(moduleName, StringComparison.OrdinalIgnoreCase) ||
+            m.StartsWith(moduleName, StringComparison.OrdinalIgnoreCase) ||
+            moduleName.StartsWith(m, StringComparison.OrdinalIgnoreCase) ||
+            (moduleName.Contains("Branch", StringComparison.OrdinalIgnoreCase) && m.Contains("Branch", StringComparison.OrdinalIgnoreCase)) ||
+            (moduleName.Contains("Action", StringComparison.OrdinalIgnoreCase) && m.Contains("Action", StringComparison.OrdinalIgnoreCase)) ||
+            (moduleName.Contains("Transaction", StringComparison.OrdinalIgnoreCase) && m.Contains("Transaction", StringComparison.OrdinalIgnoreCase)) ||
+            (moduleName.Contains("Collection", StringComparison.OrdinalIgnoreCase) && m.Contains("Collection", StringComparison.OrdinalIgnoreCase)) ||
+            (moduleName.Contains("Intelligence", StringComparison.OrdinalIgnoreCase) && m.Contains("Intelligence", StringComparison.OrdinalIgnoreCase)) ||
+            (moduleName.Contains("Support", StringComparison.OrdinalIgnoreCase) && m.Contains("Support", StringComparison.OrdinalIgnoreCase)) ||
+            (moduleName.Contains("Inventory", StringComparison.OrdinalIgnoreCase) && m.Contains("Inventory", StringComparison.OrdinalIgnoreCase)) ||
+            (moduleName.Contains("Supplies", StringComparison.OrdinalIgnoreCase) && (m.Contains("Supplies", StringComparison.OrdinalIgnoreCase) || m.Contains("Inventory", StringComparison.OrdinalIgnoreCase))) ||
+            (moduleName.Contains("Audit", StringComparison.OrdinalIgnoreCase) && m.Contains("Audit", StringComparison.OrdinalIgnoreCase)) ||
+            (moduleName.Contains("Compliance", StringComparison.OrdinalIgnoreCase) && (m.Contains("Compliance", StringComparison.OrdinalIgnoreCase) || m.Contains("Audit", StringComparison.OrdinalIgnoreCase)))
+        );
     }
 }

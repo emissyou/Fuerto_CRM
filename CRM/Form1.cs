@@ -44,6 +44,7 @@ public partial class Form1 : Form
     private Label lblApiStatus = null!;
     private readonly Dictionary<string, Button> navigationButtons = new();
     private string _currentPage = "Overview";
+    private Panel? _menuPanel;
     private Panel? _pnlBranchSwitcher;
     private ComboBox? _cmbBranchSwitcher;
     private Button? _btnCloudChip;
@@ -81,6 +82,7 @@ public partial class Form1 : Form
             }
             _ = LoadBranchesForSwitcherAsync();
             _ = CheckTermsComplianceAsync();
+            _ = SyncCompanySubscriptionAsync();
         };
     }
 
@@ -225,14 +227,35 @@ public partial class Form1 : Form
         };
         footer.Controls.Add(footerText);
 
-        var menuPanel = new Panel
+        _menuPanel = new Panel
         {
             Dock = DockStyle.Fill,
             Padding = new Padding(12, 12, 12, 0),
             AutoScroll = true
         };
-        sidebar.Controls.Add(menuPanel);
-        menuPanel.BringToFront();
+        sidebar.Controls.Add(_menuPanel);
+        _menuPanel.BringToFront();
+
+        PopulateNavigationMenu(_menuPanel);
+    }
+
+    private void RebuildNavigationMenu()
+    {
+        if (_menuPanel == null) return;
+        _menuPanel.Controls.Clear();
+        navigationButtons.Clear();
+        PopulateNavigationMenu(_menuPanel);
+        if (navigationButtons.TryGetValue(_currentPage, out var btn))
+        {
+            btn.BackColor = ColorAccentSoft;
+            btn.ForeColor = Color.FromArgb(140, 85, 0);
+            btn.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+        }
+    }
+
+    private void PopulateNavigationMenu(Panel menuPanel)
+    {
+        bool isSuper = Session.IsSuperAdmin;
 
         // =========================================================
         // ROLE-BASED & MODULE-BASED NAVIGATION
@@ -273,8 +296,14 @@ public partial class Form1 : Form
 
                 (CompanyTerminology.Projects,   "briefcase", CompanyTerminology.GroupOperations),
                 (CompanyTerminology.Activities, "clock",     CompanyTerminology.GroupOperations),
-                (CompanyTerminology.Issues,     "alert",     CompanyTerminology.GroupOperations),
-                (CompanyTerminology.Feedback,   "star",      CompanyTerminology.GroupOperations),
+
+                // CUSTOMER SUPPORT & ISSUES
+                (CompanyTerminology.Issues,     "alert",     "CUSTOMER SUPPORT"),
+                (CompanyTerminology.Feedback,   "star",      "CUSTOMER SUPPORT"),
+
+                // INVENTORY & SUPPLIES
+                ("Inventory",                    "briefcase", "INVENTORY & SUPPLIES"),
+                ("Suppliers",                    "contact",   "INVENTORY & SUPPLIES"),
 
                 ("Branches",                    "home",      "ORGANIZATION"),
                 (CompanyTerminology.Designers,  "pencil",    "TEAM"),
@@ -284,6 +313,9 @@ public partial class Form1 : Form
                 (CompanyTerminology.Retention,  "retention", CompanyTerminology.GroupInsights),
                 (CompanyTerminology.Promotions, "gift",      CompanyTerminology.GroupInsights),
                 (CompanyTerminology.Reports,    "report",    CompanyTerminology.GroupInsights),
+
+                // COMPLIANCE & AUDIT
+                ("Audit Logs",                  "clock",     "COMPLIANCE"),
                 ("Terms & Conditions",          "document",  "COMPLIANCE")
             };
         }
@@ -782,6 +814,7 @@ public partial class Form1 : Form
         if (canonical != "Terms & Conditions")
         {
             _ = CheckTermsComplianceAsync();
+            _ = SyncCompanySubscriptionAsync();
         }
 
         foreach (var item in navigationButtons)
@@ -822,6 +855,8 @@ public partial class Form1 : Form
             "Retention"                => CompanyTerminology.Retention,
             "Promotions"               => CompanyTerminology.Promotions,
             "Reports"                  => CompanyTerminology.Reports,
+            "Inventory"                => "Inventory & Materials Stock",
+            "Suppliers"                => "Suppliers & Material Vendors",
             _                          => canonical
         };
 
@@ -857,6 +892,8 @@ public partial class Form1 : Form
             "Retention"               => CompanyTerminology.SubtitleRetention,
             "Promotions"              => CompanyTerminology.SubtitlePromotions,
             "Reports"                 => CompanyTerminology.SubtitleReports,
+            "Inventory"               => "Track on-hand stock quantities, reorder thresholds, and material catalog",
+            "Suppliers"               => "Manage authorized material suppliers, purchase agreements, and vendors",
             _                         => Session.CompanyName ?? "Company Operations"
         };
 
@@ -893,7 +930,7 @@ public partial class Form1 : Form
         else if (canonical == "Audit Logs")
         {
             contentPanel.Controls.Clear();
-            var auditPage = new SuperAdminAuditLogPage();
+            var auditPage = new SuperAdminAuditLogPage(Session.IsSuperAdmin ? null : Session.CompanyCode);
             contentPanel.Controls.Add(auditPage);
         }
         else if (canonical == "System Settings")
@@ -955,6 +992,12 @@ public partial class Form1 : Form
         else if (canonical == "Feedback")
             _ = LoadEntityPageAsync("Feedback", "feedback",
                 new[] { "ProjectFeedbackId", "ProjectId", "OverallRating", "TimelinessRating", "CommunicationRating", "ValueRating", "SubmittedAt" });
+        else if (canonical == "Inventory")
+            _ = LoadEntityPageAsync("Inventory", "inventory",
+                new[] { "InventoryId", "ProductCode", "ProductName", "UnitPrice", "QuantityOnHand", "ReorderLevel", "LastUpdatedAt" });
+        else if (canonical == "Suppliers")
+            _ = LoadEntityPageAsync("Suppliers", "suppliers",
+                new[] { "SupplierId", "SupplierCode", "SupplierName", "ContactPerson", "ContactNumber", "EmailAddress", "IsActive" });
         else if (canonical == "Analytics")
             BuildBiDashboard();
         else if (canonical == "Retention")
@@ -2488,7 +2531,104 @@ public partial class Form1 : Form
                 return;
             }
 
-            // Fallback create (Customers, Leads, Suppliers, etc.)
+            if (string.Equals(endpoint, "suppliers", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlgSup = new CrmModalDialog(
+                    title: "Add New Material Supplier / Vendor",
+                    subtitle: "Register an authorized material supplier or trade subcontractor.",
+                    actionText: "Save Supplier",
+                    iconSymbol: "🏭",
+                    dialogWidth: 540);
+
+                dlgSup.AddTwoTextFields(
+                    "Supplier Code *", "e.g. SUP-001", out var txtCode,
+                    "Supplier Name *", "e.g. Davao Aggregates & Hardware Corp", out var txtName,
+                    req1: true, req2: true);
+
+                dlgSup.AddTwoTextFields(
+                    "Contact Person", "e.g. John Santos", out var txtContact,
+                    "Contact Phone", "09XX-XXX-XXXX", out var txtSupPhone);
+
+                dlgSup.AddTwoTextFields(
+                    "Email Address", "supplier@domain.com", out var txtSupEmail,
+                    "Office / Warehouse Address", "e.g. Lanang, Davao City", out var txtAddress);
+
+                var chkSupActive = dlgSup.AddCheckboxField("Active Authorized Supplier", true);
+
+                if (dlgSup.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (string.IsNullOrWhiteSpace(txtName.Text))
+                    {
+                        MessageBox.Show("Supplier name is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["supplierCode"] = string.IsNullOrWhiteSpace(txtCode.Text) ? "SUP-" + Guid.NewGuid().ToString("N")[..5].ToUpper() : txtCode.Text.Trim(),
+                        ["supplierName"] = txtName.Text.Trim(),
+                        ["contactPerson"] = txtContact.Text.Trim(),
+                        ["contactNumber"] = txtSupPhone.Text.Trim(),
+                        ["emailAddress"] = txtSupEmail.Text.Trim(),
+                        ["address"] = txtAddress.Text.Trim(),
+                        ["isActive"] = chkSupActive.Checked
+                    };
+
+                    await PostObjectAsync("suppliers", body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            if (string.Equals(endpoint, "inventory", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlgInv = new CrmModalDialog(
+                    title: "Add Inventory Stock Item",
+                    subtitle: "Track on-hand stock quantities, reorder thresholds, and material catalog details.",
+                    actionText: "Save Inventory Item",
+                    iconSymbol: "📦",
+                    dialogWidth: 540);
+
+                dlgInv.AddTwoTextFields(
+                    "Product Code *", "e.g. MAT-001", out var txtProdCode,
+                    "Material / Product Name *", "e.g. Portland Cement (40kg bag)", out var txtProdName,
+                    req1: true, req2: true);
+
+                dlgInv.AddTwoTextFields(
+                    "Quantity On Hand *", "100", out var txtQty,
+                    "Reorder Threshold *", "20", out var txtReorder,
+                    req1: true, req2: true);
+
+                var txtUnitPrice = dlgInv.AddTextField("Unit Price (₱)", "250.00");
+
+                if (dlgInv.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (string.IsNullOrWhiteSpace(txtProdName.Text))
+                    {
+                        MessageBox.Show("Material / Product name is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    decimal.TryParse(txtQty.Text, out var qty);
+                    decimal.TryParse(txtReorder.Text, out var reorder);
+                    decimal.TryParse(txtUnitPrice.Text, out var unitPrice);
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["productCode"] = string.IsNullOrWhiteSpace(txtProdCode.Text) ? "PRD-" + Guid.NewGuid().ToString("N")[..5].ToUpper() : txtProdCode.Text.Trim(),
+                        ["productName"] = txtProdName.Text.Trim(),
+                        ["unitPrice"] = unitPrice,
+                        ["quantityOnHand"] = qty,
+                        ["reorderLevel"] = reorder
+                    };
+
+                    await PostObjectAsync("inventory", body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            // Fallback create (Customers, Leads, etc.)
             string entitySingular = title switch
             {
                 "Activities" or "activities" => CompanyTerminology.IsGilbb ? "Site Inspection" : (CompanyTerminology.IsCcdavao ? "Site Consultation" : "Activity"),
@@ -2574,6 +2714,7 @@ public partial class Form1 : Form
                 "activities" => GetValueFromJson(record, "ActivityId"),
                 "issues" => GetValueFromJson(record, "ProjectIssueId") ?? GetValueFromJson(record, "IssueId"),
                 "suppliers" => GetValueFromJson(record, "SupplierId"),
+                "inventory" => GetValueFromJson(record, "InventoryId"),
                 _ => GetValueFromJson(record, "Id")
             };
             if (idObj == null) { MessageBox.Show("Cannot determine record id.", "Edit"); return; }
@@ -2803,7 +2944,113 @@ public partial class Form1 : Form
                 return;
             }
 
-            // Modern SaaS Edit Dialog (Fallback for Customers, Leads, Suppliers)
+            if (string.Equals(endpoint, "suppliers", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlgSup = new CrmModalDialog(
+                    title: "Edit Supplier Details",
+                    subtitle: "Update supplier code, contact person, credentials, and vendor status.",
+                    actionText: "Save Changes",
+                    iconSymbol: "✎",
+                    dialogWidth: 540);
+
+                dlgSup.AddTwoTextFields(
+                    "Supplier Code", "Code...", out var txtCode,
+                    "Supplier Name *", "Name...", out var txtName, req2: true);
+                txtCode.Text = GetString(elem, "SupplierCode", "supplierCode") ?? "";
+                txtCode.ReadOnly = true;
+                txtName.Text = GetString(elem, "SupplierName", "supplierName") ?? "";
+
+                dlgSup.AddTwoTextFields(
+                    "Contact Person", "Contact person name", out var txtContact,
+                    "Contact Phone", "09XX-XXX-XXXX", out var txtSupPhone);
+                txtContact.Text = GetString(elem, "ContactPerson", "contactPerson") ?? "";
+                txtSupPhone.Text = GetString(elem, "ContactNumber", "contactNumber") ?? "";
+
+                dlgSup.AddTwoTextFields(
+                    "Email Address", "supplier@domain.com", out var txtSupEmail,
+                    "Office / Warehouse Address", "e.g. Lanang, Davao City", out var txtAddress);
+                txtSupEmail.Text = GetString(elem, "EmailAddress", "emailAddress") ?? "";
+                txtAddress.Text = GetString(elem, "Address", "address") ?? "";
+
+                var chkSupActive = dlgSup.AddCheckboxField("Active Authorized Supplier", (GetValueFromJson(elem, "IsActive") as bool?) ?? true);
+
+                if (dlgSup.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (string.IsNullOrWhiteSpace(txtName.Text))
+                    {
+                        MessageBox.Show("Supplier name is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["supplierName"] = txtName.Text.Trim(),
+                        ["contactPerson"] = txtContact.Text.Trim(),
+                        ["contactNumber"] = txtSupPhone.Text.Trim(),
+                        ["emailAddress"] = txtSupEmail.Text.Trim(),
+                        ["address"] = txtAddress.Text.Trim(),
+                        ["isActive"] = chkSupActive.Checked
+                    };
+
+                    await PutObjectAsync($"suppliers/{id}", body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            if (string.Equals(endpoint, "inventory", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlgInv = new CrmModalDialog(
+                    title: "Edit Inventory Stock Item",
+                    subtitle: "Update on-hand stock quantities, reorder thresholds, and pricing.",
+                    actionText: "Save Changes",
+                    iconSymbol: "✎",
+                    dialogWidth: 540);
+
+                dlgInv.AddTwoTextFields(
+                    "Product Code", "Code...", out var txtProdCode,
+                    "Material / Product Name *", "e.g. Portland Cement (40kg bag)", out var txtProdName,
+                    req2: true);
+                txtProdCode.Text = GetString(elem, "ProductCode", "productCode") ?? "";
+                txtProdCode.ReadOnly = true;
+                txtProdName.Text = GetString(elem, "ProductName", "productName") ?? "";
+
+                dlgInv.AddTwoTextFields(
+                    "Quantity On Hand *", "100", out var txtQty,
+                    "Reorder Threshold *", "20", out var txtReorder,
+                    req1: true, req2: true);
+                txtQty.Text = GetValueFromJson(elem, "QuantityOnHand")?.ToString() ?? "0";
+                txtReorder.Text = GetValueFromJson(elem, "ReorderLevel")?.ToString() ?? "0";
+
+                var txtUnitPrice = dlgInv.AddTextField("Unit Price (₱)", "250.00", initialValue: GetValueFromJson(elem, "UnitPrice")?.ToString() ?? "0.00");
+
+                if (dlgInv.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (string.IsNullOrWhiteSpace(txtProdName.Text))
+                    {
+                        MessageBox.Show("Material / Product name is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    decimal.TryParse(txtQty.Text, out var qty);
+                    decimal.TryParse(txtReorder.Text, out var reorder);
+                    decimal.TryParse(txtUnitPrice.Text, out var unitPrice);
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["productName"] = txtProdName.Text.Trim(),
+                        ["unitPrice"] = unitPrice,
+                        ["quantityOnHand"] = qty,
+                        ["reorderLevel"] = reorder
+                    };
+
+                    await PutObjectAsync($"inventory/{id}", body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            // Modern SaaS Edit Dialog (Fallback for Customers, Leads, etc.)
             string entitySingular = title switch
             {
                 "Activities" or "activities" => CompanyTerminology.IsGilbb ? "Site Inspection" : (CompanyTerminology.IsCcdavao ? "Site Consultation" : "Activity"),
@@ -2869,6 +3116,7 @@ public partial class Form1 : Form
                 "activities" => GetValueFromJson(record, "ActivityId"),
                 "issues" => GetValueFromJson(record, "ProjectIssueId") ?? GetValueFromJson(record, "IssueId"),
                 "suppliers" => GetValueFromJson(record, "SupplierId"),
+                "inventory" => GetValueFromJson(record, "InventoryId"),
                 _ => GetValueFromJson(record, "Id")
             };
             if (idObj == null) { MessageBox.Show("Cannot determine record id.", "Delete"); return; }
@@ -2972,6 +3220,18 @@ public partial class Form1 : Form
         else if (ep == "feedback")
         {
             filterBar.AddFilter("OverallRating", "Rating", "5 Stars ★★★★★", "4 Stars ★★★★", "3 Stars ★★★", "2 Stars ★★", "1 Star ★");
+        }
+        else if (ep == "suppliers")
+        {
+            filterBar.AddFilter("IsActive", "Status", "Active", "Inactive");
+        }
+        else if (ep == "inventory")
+        {
+            var products = records.Select(r => GetString(r, "ProductName"))
+                                  .Where(s => !string.IsNullOrWhiteSpace(s))
+                                  .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (products.Count > 0 && products.Count <= 12)
+                filterBar.AddFilter("ProductName", "Product", products);
         }
         else
         {
@@ -3532,10 +3792,10 @@ public partial class Form1 : Form
         // Both Super Admin and Company Users can access Terms & Conditions
         if (pageName is "Terms & Conditions" or "Terms") return true;
 
-        // Company users cannot see any platform administration pages
+        // Company users cannot see platform administration pages
         if (pageName is "Platform BI" or "Admin Panel" or "Company Admins & Users"
                      or "Company Admins" or "Subscriptions & Billing" or "Company Accounts"
-                     or "System Users" or "Audit Logs" or "System Settings" or "SA Policy")
+                     or "System Users" or "System Settings" or "SA Policy")
             return false;
 
         // Check module entitlement:
@@ -3547,7 +3807,7 @@ public partial class Form1 : Form
         {
             if (!Session.HasModule("Data Collection") && !Session.HasModule("Action")) return false;
         }
-        else if (pageName is "Leads" or "Activities" or "Issues" or "Feedback")
+        else if (pageName is "Leads" or "Activities")
         {
             if (!Session.HasModule("Data Collection")) return false;
         }
@@ -3560,12 +3820,32 @@ public partial class Form1 : Form
             if (!Session.HasModule("Action")) return false;
         }
 
+        // Customer Support & Issues Module:
+        if (pageName is "Issues" or "Feedback")
+        {
+            if (!Session.HasModule("Customer Support") && !Session.HasModule("Customer Support & Issues")) return false;
+        }
+
+        // Inventory & Supplies Module:
+        if (pageName is "Inventory" or "Suppliers")
+        {
+            if (!Session.HasModule("Inventory") && !Session.HasModule("Inventory & Supplies")) return false;
+        }
+
+        // Branching & Locations Module:
         if (pageName == "Branches")
         {
-            // Only Fuerto CRM has branching; GLI Bahay Builds and Custom Crafters Davao have branches removed
-            if (CompanyTerminology.IsGilbb || CompanyTerminology.IsCcdavao) return false;
-            // Branching feature for Company Admin
+            // Company must have the Branching & Locations module enabled in their subscription
+            if (!Session.HasModule("Branching")) return false;
+            // Branch management feature is accessible to Company Admin
             return isAdmin;
+        }
+
+        // Audit & Compliance Module:
+        if (pageName == "Audit Logs")
+        {
+            if (!Session.HasModule("Audit") && !Session.HasModule("Audit & Compliance")) return false;
+            return isAdmin || isManager;
         }
 
         if (isAdmin) return true;
@@ -3584,10 +3864,13 @@ public partial class Form1 : Form
                 "Users" => true,
                 "Issues" => true,
                 "Feedback" => true,
+                "Inventory" => true,
+                "Suppliers" => true,
                 "Analytics" => true,
                 "Retention" => true,
                 "Promotions" => true,
                 "Reports" => true,
+                "Audit Logs" => true,
                 _ => false
             };
         }
@@ -3606,9 +3889,12 @@ public partial class Form1 : Form
             "Designers" => true,
             "Promotions" => true,
             "Reports" => true,
+            "Inventory" => true,
+            "Suppliers" => true,
             "Analytics" => false,
             "Retention" => false,
             "Users" => false,
+            "Audit Logs" => false,
             _ => false
         };
     }
@@ -3617,8 +3903,8 @@ public partial class Form1 : Form
     {
         if (Session.IsSuperAdmin || !Session.CompanyId.HasValue || _cmbBranchSwitcher == null) return;
 
-        // Hide branch switcher completely for companies without branching
-        if (CompanyTerminology.IsGilbb || CompanyTerminology.IsCcdavao)
+        // Hide branch switcher completely for companies without the Branching module
+        if (!Session.HasModule("Branching"))
         {
             _pnlBranchSwitcher?.Hide();
             return;
@@ -4574,6 +4860,78 @@ public partial class Form1 : Form
         finally
         {
             _checkingTerms = false;
+        }
+    }
+
+    private bool _syncingSubscription = false;
+    private async Task SyncCompanySubscriptionAsync()
+    {
+        if (Session.IsSuperAdmin || !Session.CompanyId.HasValue || string.IsNullOrWhiteSpace(Session.Token) || _syncingSubscription || !OfflineSyncManager.IsOnline)
+            return;
+
+        try
+        {
+            _syncingSubscription = true;
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{ApiUrl}/tenant/{Session.CompanyId.Value}/subscription");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+
+            var res = await _httpClient.SendAsync(req);
+            if (res.IsSuccessStatusCode)
+            {
+                var json = await res.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+
+                string newModules = doc.RootElement.TryGetProperty("availedModules", out var am) ? am.GetString() ?? "All" : "All";
+                string newStatus = doc.RootElement.TryGetProperty("status", out var st) ? st.GetString() ?? "Active" : "Active";
+                bool isActive = doc.RootElement.TryGetProperty("isActive", out var ia) ? ia.GetBoolean() : true;
+
+                bool changed = false;
+                if (!string.Equals(Session.AvailedModules, newModules, StringComparison.OrdinalIgnoreCase))
+                {
+                    Session.AvailedModules = newModules;
+                    changed = true;
+                }
+
+                if (!string.Equals(Session.SubscriptionStatus, newStatus, StringComparison.OrdinalIgnoreCase))
+                {
+                    Session.SubscriptionStatus = newStatus;
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    if (InvokeRequired)
+                    {
+                        Invoke(new Action(() =>
+                        {
+                            RebuildNavigationMenu();
+                            _ = LoadBranchesForSwitcherAsync();
+                        }));
+                    }
+                    else
+                    {
+                        RebuildNavigationMenu();
+                        _ = LoadBranchesForSwitcherAsync();
+                    }
+                }
+
+                if (!isActive || newStatus.Equals("Suspended", StringComparison.OrdinalIgnoreCase) ||
+                    newStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase) ||
+                    newStatus.Equals("Inactive", StringComparison.OrdinalIgnoreCase) ||
+                    newStatus.Equals("Expired", StringComparison.OrdinalIgnoreCase))
+                {
+                    MessageBox.Show(
+                        $"Notice: Your company's operational status is currently set to '{newStatus}'.\nPlease contact the Platform Super Administrator for billing assistance.",
+                        "Subscription Status Notice",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+            }
+        }
+        catch { }
+        finally
+        {
+            _syncingSubscription = false;
         }
     }
 }

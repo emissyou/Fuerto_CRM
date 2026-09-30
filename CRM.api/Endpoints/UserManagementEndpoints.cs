@@ -325,6 +325,20 @@ public static class UserManagementEndpoints
                     return Results.BadRequest(new { message = "Role change failed.", errors = roleResult.Errors.Select(e => e.Description) });
             }
 
+            // Password update if provided
+            if (!string.IsNullOrWhiteSpace(request.NewPassword))
+            {
+                if (request.NewPassword.Length < 6)
+                    return Results.BadRequest(new { message = "Password must be at least 6 characters." });
+
+                var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+                var resetResult = await userManager.ResetPasswordAsync(user, resetToken, request.NewPassword);
+                if (!resetResult.Succeeded)
+                {
+                    return Results.BadRequest(new { message = "Password update failed.", errors = resetResult.Errors.Select(e => e.Description) });
+                }
+            }
+
             return Results.Ok(new
             {
                 message = "User updated successfully.",

@@ -1,13 +1,19 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Linq;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Threading.Tasks;
+using System.Windows.Forms;
 
 namespace CRM_DesignServices.winforms;
 
 /// <summary>
-/// Super Admin – Unified Company Administrators & System Users Page.
-/// Shows all Company Admins across Fuerto, Leo Revita Salon, Mister Donut,
-/// and all tenant users in one centralized management view.
-/// Controls added in reverse order for accurate top-to-bottom rendering.
+/// Super Admin – Centralized Company Administrators & System Users Page.
+/// Permits editing and updating Company Administrator credentials (including passwords)
+/// across all tenants. Staff & Managers are managed by their respective Company Admins.
 /// </summary>
 public class SuperAdminSystemUsersPage : Panel
 {
@@ -23,8 +29,10 @@ public class SuperAdminSystemUsersPage : Panel
     private Label _lblTenants = null!;
     private Label _lblActive  = null!;
 
-    private Button _btnNewUser = null!;
-    private Button _btnRefresh = null!;
+    private Button _btnNewUser   = null!;
+    private Button _btnEditAdmin = null!;
+    private Button _btnResetPwd  = null!;
+    private Button _btnRefresh   = null!;
 
     private List<JsonElement> _all      = new();
     private List<JsonElement> _filtered = new();
@@ -56,9 +64,7 @@ public class SuperAdminSystemUsersPage : Panel
     {
         Controls.Clear();
 
-        // ── ADD IN REVERSE ORDER: last added = topmost displayed ──────────
-
-        // [BOTTOM] Grid card
+        // ── Grid card ──
         var card = new Panel
         {
             Dock      = DockStyle.Fill,
@@ -93,36 +99,56 @@ public class SuperAdminSystemUsersPage : Panel
 
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Company", HeaderText = "COMPANY",      FillWeight = 160 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Name",    HeaderText = "FULL NAME",    FillWeight = 140 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Email",   HeaderText = "EMAIL",        FillWeight = 200 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Email",   HeaderText = "EMAIL / LOGIN", FillWeight = 200 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Role",    HeaderText = "ROLE",         FillWeight = 85  });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status",  HeaderText = "STATUS",       FillWeight = 75  });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Created", HeaderText = "ACCOUNT TYPE", FillWeight = 100 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Created", HeaderText = "MANAGEMENT SCOPE", FillWeight = 120 });
 
         CrmTableStyler.Apply(_grid, "Role", "Status");
+
+        _grid.SelectionChanged += (_, _) => UpdateSelectionState();
+        _grid.CellDoubleClick += async (_, e) =>
+        {
+            if (e.RowIndex >= 0)
+                await OpenEditAdminDialogAsync();
+        };
+
         card.Controls.Add(_grid);
         _grid.BringToFront();
 
-        // [MIDDLE] Filter bar
+        // ── Filter bar ──
         _filterBar = new CrmFilterBar("Search users by email, name, or company…");
         _filterBar.FiltersChanged += (_, _) => Apply();
-        _filterBar.AddFilter("company", "Company", "Fuerto", "Leo Revita Salon", "Mister Donut");
+        _filterBar.AddFilter("company", "Company", "Fuerto", "GLI Bahay Builds", "Custom Crafters Davao");
         _filterBar.AddFilter("role",    "Role",    "Admin", "Manager", "Staff");
         _filterBar.AddFilter("status",  "Status",  "Active", "Inactive");
         Controls.Add(_filterBar);
 
-        // [TOP-ish] Toolbar
+        // ── Action Toolbar ──
         var bar = new Panel { Dock = DockStyle.Top, Height = 52, BackColor = Color.Transparent };
         Controls.Add(bar);
 
         int left = 0;
 
-        _btnNewUser = MakeBtn("＋  Create New Admin / User", 210, true);
-        _btnNewUser.Left   = left; left += 220;
+        _btnNewUser = MakeBtn("＋  Register Admin / User", 190, true);
+        _btnNewUser.Left   = left; left += 200;
         _btnNewUser.Click += async (_, _) => await OpenNewUserDialogAsync();
         bar.Controls.Add(_btnNewUser);
 
-        _btnRefresh = MakeBtn("↻  Refresh", 100, false);
-        _btnRefresh.Left   = left; left += 110;
+        _btnEditAdmin = MakeBtn("✎  Edit Admin Credentials", 195, false);
+        _btnEditAdmin.Left = left; left += 205;
+        _btnEditAdmin.Enabled = false;
+        _btnEditAdmin.Click += async (_, _) => await OpenEditAdminDialogAsync();
+        bar.Controls.Add(_btnEditAdmin);
+
+        _btnResetPwd = MakeBtn("🔑  Reset Admin Password", 185, false);
+        _btnResetPwd.Left = left; left += 195;
+        _btnResetPwd.Enabled = false;
+        _btnResetPwd.Click += async (_, _) => await OpenEditAdminDialogAsync();
+        bar.Controls.Add(_btnResetPwd);
+
+        _btnRefresh = MakeBtn("↻  Refresh", 95, false);
+        _btnRefresh.Left   = left; left += 105;
         _btnRefresh.Click += async (_, _) => await LoadAsync();
         bar.Controls.Add(_btnRefresh);
 
@@ -136,7 +162,7 @@ public class SuperAdminSystemUsersPage : Panel
         };
         bar.Controls.Add(_lblStatus);
 
-        // [TOP] KPI cards row (4 cards)
+        // ── KPI cards row (4 cards) ──
         var kpiRow = new Panel { Dock = DockStyle.Top, Height = 96, BackColor = Color.Transparent, Padding = new Padding(0, 0, 0, 10) };
         Controls.Add(kpiRow);
 
@@ -268,12 +294,54 @@ public class SuperAdminSystemUsersPage : Panel
                 active2 = ia.GetBoolean();
 
             string acctType = role2.Equals("Admin", StringComparison.OrdinalIgnoreCase)
-                ? "Company Admin"
-                : "Tenant Staff";
+                ? "👑 Super Admin Managed"
+                : "Tenant Managed";
 
             int rowIdx = _grid.Rows.Add(company, fn, email, role2, active2 ? "Active" : "Inactive", acctType);
             _grid.Rows[rowIdx].Tag = u;
         }
+
+        UpdateSelectionState();
+    }
+
+    private void UpdateSelectionState()
+    {
+        var sel = GetSelectedUser();
+        if (sel.HasValue)
+        {
+            string role = GP(sel.Value, "role", "Role");
+            bool isAdmin = role.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+
+            _btnEditAdmin.Enabled = isAdmin;
+            _btnResetPwd.Enabled = isAdmin;
+
+            if (isAdmin)
+            {
+                string fn = GP(sel.Value, "fullName", "FullName");
+                string comp = GP(sel.Value, "companyName", "CompanyName");
+                _lblStatus.Text = $"Selected Admin: {fn} ({comp}) · Ready to update credentials & password";
+                _lblStatus.ForeColor = Color.FromArgb(22, 101, 52);
+            }
+            else
+            {
+                _lblStatus.Text = "ℹ Super Admin can only edit and manage Company Administrator accounts.";
+                _lblStatus.ForeColor = CMuted;
+            }
+        }
+        else
+        {
+            _btnEditAdmin.Enabled = false;
+            _btnResetPwd.Enabled = false;
+        }
+    }
+
+    private JsonElement? GetSelectedUser()
+    {
+        if (_grid.CurrentRow != null && _grid.CurrentRow.Index >= 0)
+        {
+            if (_grid.CurrentRow.Tag is JsonElement el) return el;
+        }
+        return null;
     }
 
     private async Task OpenNewUserDialogAsync()
@@ -281,6 +349,34 @@ public class SuperAdminSystemUsersPage : Panel
         using var dlg = new NewUserDialog(_apiUrl, _http);
         if (dlg.ShowDialog(FindForm()) == DialogResult.OK)
             await LoadAsync();
+    }
+
+    private async Task OpenEditAdminDialogAsync()
+    {
+        var sel = GetSelectedUser();
+        if (!sel.HasValue)
+        {
+            MessageBox.Show("Please select an administrator account from the table first.", "Notice", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        string role = GP(sel.Value, "role", "Role");
+        if (!role.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(
+                "Super Admin can only edit and update Company Administrator credentials.\n\n" +
+                "Staff and Manager accounts are managed by their respective Company Admins.",
+                "Restricted Action",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
+        using var dlg = new EditUserDialog(_apiUrl, _http, sel.Value);
+        if (dlg.ShowDialog(FindForm()) == DialogResult.OK)
+        {
+            await LoadAsync();
+        }
     }
 
     private Panel MakeKpi(string title, Color accent, out Label val)

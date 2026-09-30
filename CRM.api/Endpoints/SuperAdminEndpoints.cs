@@ -393,5 +393,33 @@ public static class SuperAdminEndpoints
             return Results.Ok(sorted);
         })
         .RequireAuthorization(policy => policy.RequireRole("Super Admin"));
+
+        // 7. GET TENANT SUBSCRIPTION & AVAILED MODULES (ACCESSIBLE BY TENANT AND SUPER ADMIN)
+        app.MapGet("/tenant/{companyId:int}/subscription", async (
+            int companyId,
+            HttpContext httpContext,
+            MasterErpDbContext db) =>
+        {
+            if (!CRM.api.Security.TenantAuthorization.IsAuthorized(httpContext, companyId))
+                return Results.Forbid();
+
+            var company = await db.Companies.FindAsync(companyId);
+            if (company is null) return Results.NotFound(new { message = "Company not found." });
+
+            var sub = await db.CompanySubscriptions.FirstOrDefaultAsync(s => s.CompanyId == companyId);
+            return Results.Ok(new
+            {
+                companyId = company.CompanyId,
+                companyCode = company.CompanyCode,
+                companyName = company.CompanyName,
+                isActive = company.IsActive,
+                planName = sub?.PlanName ?? "Standard",
+                status = sub?.Status ?? "Active",
+                monthlyFee = sub?.MonthlyFee ?? 0m,
+                availedModules = sub?.AvailedModules ?? "All",
+                endDate = sub?.EndDate
+            });
+        })
+        .RequireAuthorization();
     }
 }
