@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.domain.Entities;
 using CRM.infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
@@ -42,8 +42,7 @@ public static class PromotionEndpoints
             }
 
             var promotions = await query
-                .OrderByDescending(p => p.IsActive)
-                .ThenByDescending(p => p.CreatedAt)
+                .OrderByDescending(p => p.PromotionId)
                 .Select(p => new
                 {
                     p.PromotionId,

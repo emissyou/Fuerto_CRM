@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.domain.Entities;
 using CRM.infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -60,7 +60,7 @@ public static class InventoryEndpoints
                     var inventory = await db.Inventories
                         .AsNoTracking()
                         .Include(x => x.Product)
-                        .OrderBy(x => x.InventoryId)
+                        .OrderByDescending(x => x.InventoryId)
                         .ToListAsync();
 
                     return Results.Ok(inventory);

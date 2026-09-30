@@ -1,4 +1,9 @@
 using System.Drawing.Drawing2D;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace CRM_DesignServices.winforms;
 
@@ -25,9 +30,19 @@ public class SuperAdminPolicyPage : Panel
     private static readonly Color CAmberBg   = Color.FromArgb(254, 252, 232);
 
     private readonly Panel _container;
+    private readonly string _apiUrl;
+    private readonly HttpClient _http;
 
-    public SuperAdminPolicyPage()
+    public SuperAdminPolicyPage(string apiUrl = "http://localhost:5068", HttpClient? http = null)
     {
+        _apiUrl    = apiUrl;
+        _http      = http ?? new HttpClient();
+
+        if (!string.IsNullOrWhiteSpace(Session.Token) && !_http.DefaultRequestHeaders.Contains("Authorization"))
+        {
+            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+        }
+
         Dock       = DockStyle.Fill;
         BackColor  = CBg;
         AutoScroll = true;
@@ -159,6 +174,12 @@ public class SuperAdminPolicyPage : Panel
         sec7.Location = new Point(0, y);
         _container.Controls.Add(sec7);
         y += sec7.Height + 16;
+
+        // 8. Section 8 – Platform Terms & Conditions (Company EULA Governance)
+        var sec8 = BuildTermsManagementCard(targetW);
+        sec8.Location = new Point(0, y);
+        _container.Controls.Add(sec8);
+        y += sec8.Height + 16;
 
         // 9. Acknowledgement Badge Card
         var ack = BuildAckCard(targetW);
@@ -481,4 +502,340 @@ public class SuperAdminPolicyPage : Panel
 
         return card;
     }
+
+    // ── 6. Platform Terms & Conditions Card (Company EULA Governance) ────────
+    private Panel BuildTermsManagementCard(int width)
+    {
+        var card = new Panel
+        {
+            Width     = width,
+            BackColor = CCard,
+            Anchor    = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
+        };
+
+        var hdr = new Panel
+        {
+            Dock      = DockStyle.Top,
+            Height    = 44,
+            BackColor = Color.FromArgb(254, 243, 199)
+        };
+        hdr.Paint += (_, pe) =>
+        {
+            pe.Graphics.DrawLine(new Pen(Color.FromArgb(253, 230, 138), 1), 0, hdr.Height - 1, hdr.Width, hdr.Height - 1);
+            using var b = new SolidBrush(CAccent);
+            pe.Graphics.FillRectangle(b, 0, 0, 5, hdr.Height);
+        };
+        hdr.Controls.Add(new Label
+        {
+            Text      = "📜  8. Platform Terms & Conditions (Company Initial Login EULA Governance)",
+            Font      = new Font("Segoe UI", 10.25f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(180, 83, 9),
+            AutoSize  = true,
+            Location  = new Point(16, 12)
+        });
+        card.Controls.Add(hdr);
+
+        int curY = hdr.Bottom + 12;
+
+        var lblDesc = new Label
+        {
+            Text      = "Platform EULA Mandate: When the Super Administrator provisions credentials for a new company or tenant administrator, " +
+                        "the user must initially review and accept the official Platform Terms & Conditions in a desktop-installer style wizard upon login. " +
+                        "If rejected, access to the CRM workspace is denied immediately. Super Admin can manage clauses, force re-acceptance, or preview the tenant experience below.",
+            Font      = new Font("Segoe UI", 9f),
+            ForeColor = CText,
+            Location  = new Point(16, curY),
+            Width     = width - 32,
+            Height    = 52,
+            Anchor    = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
+        };
+        card.Controls.Add(lblDesc);
+        curY += lblDesc.Height + 8;
+
+        var pnlMeta = new Panel
+        {
+            Location = new Point(16, curY),
+            Width = width - 32,
+            Height = 36,
+            BackColor = Color.FromArgb(248, 250, 252),
+            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
+        };
+        pnlMeta.Paint += (_, pe) =>
+        {
+            pe.Graphics.DrawRectangle(new Pen(CBorder, 1), 0, 0, pnlMeta.Width - 1, pnlMeta.Height - 1);
+        };
+
+        var lblMetaText = new Label
+        {
+            Text = "Loading platform terms metadata...",
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(71, 85, 105),
+            Location = new Point(12, 9),
+            AutoSize = true
+        };
+        pnlMeta.Controls.Add(lblMetaText);
+        card.Controls.Add(pnlMeta);
+        curY += pnlMeta.Height + 12;
+
+        var flowButtons = new FlowLayoutPanel
+        {
+            Location = new Point(16, curY),
+            Width = width - 32,
+            Height = 40,
+            FlowDirection = FlowDirection.LeftToRight,
+            BackColor = Color.Transparent,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top
+        };
+        card.Controls.Add(flowButtons);
+
+        var btnEdit = new Button
+        {
+            Text = "✏  Edit Terms & Conditions",
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            BackColor = CBlue,
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Height = 34,
+            Width = 220,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(0, 0, 10, 0)
+        };
+        btnEdit.FlatAppearance.BorderSize = 0;
+        flowButtons.Controls.Add(btnEdit);
+
+        var btnPreview = new Button
+        {
+            Text = "👁  Preview Tenant Installer EULA",
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            BackColor = CGreen,
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Height = 34,
+            Width = 240,
+            Cursor = Cursors.Hand,
+            Margin = new Padding(0, 0, 10, 0)
+        };
+        btnPreview.FlatAppearance.BorderSize = 0;
+        flowButtons.Controls.Add(btnPreview);
+
+        var btnRefresh = new Button
+        {
+            Text = "🔄  Refresh Audit List",
+            Font = new Font("Segoe UI", 9f),
+            BackColor = Color.White,
+            ForeColor = Color.FromArgb(71, 85, 105),
+            FlatStyle = FlatStyle.Flat,
+            Height = 34,
+            Width = 170,
+            Cursor = Cursors.Hand
+        };
+        btnRefresh.FlatAppearance.BorderColor = CBorder;
+        flowButtons.Controls.Add(btnRefresh);
+
+        curY += flowButtons.Height + 12;
+
+        var lblAuditTitle = new Label
+        {
+            Text = "📋 Tenant Acceptance Audit Log & Compliance Status:",
+            Font = new Font("Segoe UI", 9.25f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(15, 23, 42),
+            Location = new Point(16, curY),
+            AutoSize = true
+        };
+        card.Controls.Add(lblAuditTitle);
+        curY += lblAuditTitle.Height + 6;
+
+        var dgv = new DataGridView
+        {
+            Location = new Point(16, curY),
+            Width = width - 32,
+            Height = 220,
+            Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
+            BackgroundColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle,
+            RowHeadersVisible = false,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AllowUserToResizeRows = false,
+            ReadOnly = true,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            Font = new Font("Segoe UI", 8.75f)
+        };
+
+        dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "CompanyId", HeaderText = "ID", FillWeight = 25, Visible = false });
+        dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "CompanyName", HeaderText = "Tenant Company", FillWeight = 110 });
+        dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "CompanyCode", HeaderText = "Code", FillWeight = 45 });
+        dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "EULA Status", FillWeight = 70 });
+        dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "Version", HeaderText = "Version", FillWeight = 45 });
+        dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "AcceptedAt", HeaderText = "Accepted Timestamp", FillWeight = 85 });
+        dgv.Columns.Add(new DataGridViewTextBoxColumn { Name = "AcceptedBy", HeaderText = "Accepted By", FillWeight = 95 });
+
+        var colRevoke = new DataGridViewButtonColumn
+        {
+            Name = "Action",
+            HeaderText = "Governance Action",
+            Text = "Require Re-Acceptance",
+            UseColumnTextForButtonValue = true,
+            FillWeight = 80
+        };
+        dgv.Columns.Add(colRevoke);
+
+        card.Controls.Add(dgv);
+        curY += dgv.Height + 16;
+
+        card.Height = curY;
+
+        card.Paint += (_, pe) =>
+        {
+            pe.Graphics.DrawRectangle(new Pen(CBorder, 1), 0, 0, card.Width - 1, card.Height - 1);
+            using var b = new SolidBrush(CAccent);
+            pe.Graphics.FillRectangle(b, 0, 0, 5, card.Height);
+        };
+
+        async Task LoadDataAsync()
+        {
+            try
+            {
+                var tRes = await _http.GetAsync($"{_apiUrl}/terms");
+                if (tRes.IsSuccessStatusCode)
+                {
+                    using var doc = JsonDocument.Parse(await tRes.Content.ReadAsStringAsync());
+                    string ver = doc.RootElement.GetProperty("version").GetString() ?? "v1.0";
+                    string title = doc.RootElement.GetProperty("title").GetString() ?? "Fuerto CRM Platform Agreement";
+                    lblMetaText.Text = $"Active Version: {ver}  ·  Title: {title}  ·  Mandatory Acceptance: Active";
+                }
+
+                var cRes = await _http.GetAsync($"{_apiUrl}/companies");
+                var aRes = await _http.GetAsync($"{_apiUrl}/superadmin/terms/acceptances");
+
+                if (!cRes.IsSuccessStatusCode) return;
+
+                using var cDoc = JsonDocument.Parse(await cRes.Content.ReadAsStringAsync());
+                JsonDocument? aDoc = null;
+                if (aRes.IsSuccessStatusCode)
+                {
+                    aDoc = JsonDocument.Parse(await aRes.Content.ReadAsStringAsync());
+                }
+
+                dgv.Rows.Clear();
+
+                foreach (var comp in cDoc.RootElement.EnumerateArray())
+                {
+                    int cid = comp.GetProperty("companyId").GetInt32();
+                    string cname = comp.GetProperty("companyName").GetString() ?? "";
+                    string ccode = comp.GetProperty("companyCode").GetString() ?? "";
+
+                    bool hasAccepted = false;
+                    string acceptedAt = "-";
+                    string acceptedBy = "-";
+                    string ver = "-";
+
+                    if (aDoc != null && aDoc.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var acc in aDoc.RootElement.EnumerateArray())
+                        {
+                            if (acc.GetProperty("companyId").GetInt32() == cid)
+                            {
+                                hasAccepted = true;
+                                if (acc.TryGetProperty("acceptedAt", out var at) && at.ValueKind == JsonValueKind.String)
+                                {
+                                    if (DateTime.TryParse(at.GetString(), out var dt))
+                                        acceptedAt = dt.ToLocalTime().ToString("yyyy-MM-dd hh:mm tt");
+                                }
+                                if (acc.TryGetProperty("acceptedByName", out var by))
+                                    acceptedBy = by.GetString() ?? "";
+                                if (acc.TryGetProperty("termsVersion", out var tv))
+                                    ver = tv.GetString() ?? "";
+                                break;
+                            }
+                        }
+                    }
+
+                    int rowIdx = dgv.Rows.Add(
+                        cid,
+                        cname,
+                        ccode,
+                        hasAccepted ? "✅ Accepted" : "⏳ Pending Acceptance",
+                        ver,
+                        acceptedAt,
+                        acceptedBy
+                    );
+
+                    if (!hasAccepted)
+                    {
+                        dgv.Rows[rowIdx].Cells["Status"].Style.ForeColor = Color.FromArgb(180, 83, 9);
+                        dgv.Rows[rowIdx].Cells["Status"].Style.BackColor = Color.FromArgb(254, 243, 199);
+                    }
+                    else
+                    {
+                        dgv.Rows[rowIdx].Cells["Status"].Style.ForeColor = Color.FromArgb(22, 163, 74);
+                        dgv.Rows[rowIdx].Cells["Status"].Style.BackColor = Color.FromArgb(240, 253, 244);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        btnEdit.Click += (_, _) =>
+        {
+            using var dlg = new EditPlatformTermsDialog(_apiUrl, _http);
+            dlg.TermsUpdated += async (_, _) => await LoadDataAsync();
+            dlg.ShowDialog(FindForm());
+        };
+
+        btnPreview.Click += (_, _) =>
+        {
+            using var previewDlg = new TermsAndConditionsDialog(
+                _apiUrl,
+                Session.Token,
+                1,
+                "Acme Design Studio (Preview)",
+                "ACME",
+                "admin@acmedesign.local",
+                isPreviewMode: true);
+            previewDlg.ShowDialog(FindForm());
+        };
+
+        btnRefresh.Click += async (_, _) => await LoadDataAsync();
+
+        dgv.CellContentClick += async (s, e) =>
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex == dgv.Columns["Action"].Index)
+            {
+                int cid = Convert.ToInt32(dgv.Rows[e.RowIndex].Cells["CompanyId"].Value);
+                string cname = dgv.Rows[e.RowIndex].Cells["CompanyName"].Value?.ToString() ?? "Company";
+
+                var confirm = MessageBox.Show(
+                    $"Require '{cname}' to re-accept the Platform Terms & Conditions on their next login?",
+                    "Require Re-Acceptance",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (confirm == DialogResult.Yes)
+                {
+                    try
+                    {
+                        var json = JsonSerializer.Serialize(new { companyId = cid });
+                        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+                        var res = await _http.PostAsync($"{_apiUrl}/superadmin/terms/revoke", content);
+                        if (res.IsSuccessStatusCode)
+                        {
+                            MessageBox.Show($"Terms acceptance revoked for {cname}. They will be prompted on next sign-in.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            await LoadDataAsync();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Error revoking terms: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+        };
+
+        _ = LoadDataAsync();
+
+        return card;
+    }
 }
+

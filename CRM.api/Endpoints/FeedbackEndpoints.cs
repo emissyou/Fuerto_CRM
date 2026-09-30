@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.domain.DTOs;
 using CRM.domain.Entities;
 using CRM.infrastructure.Data;
@@ -149,7 +149,7 @@ public static class FeedbackEndpoints
             var feedback = await db.ProjectFeedbacks
                 .AsNoTracking()
                 .Where(f => f.CompanyId == companyId)
-                .OrderByDescending(f => f.SubmittedAt)
+                .OrderByDescending(f => f.ProjectFeedbackId)
                 .ToListAsync();
 
             return Results.Ok(feedback);

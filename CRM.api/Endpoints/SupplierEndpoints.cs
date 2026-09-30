@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.domain.Entities;
 using CRM.infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -52,7 +52,7 @@ public static class SupplierEndpoints
                         var suppliers = await db.Suppliers
                             .AsNoTracking()
                             .Where(x => x.CompanyId == companyId)
-                            .OrderBy(x => x.SupplierName)
+                            .OrderByDescending(x => x.SupplierId)
                             .ToListAsync();
 
                         return Results.Ok(suppliers);

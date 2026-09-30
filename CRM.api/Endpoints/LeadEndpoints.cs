@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.domain.Entities;
 using CRM.infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +26,15 @@ public static class LeadEndpoints
 
             // Always use the company from the route
             lead.CompanyId = companyId;
+            lead.FirstName = lead.FirstName?.Trim() ?? string.Empty;
+            lead.LastName = lead.LastName?.Trim() ?? string.Empty;
+            lead.Email = lead.Email?.Trim() ?? string.Empty;
+            lead.Phone = lead.Phone?.Trim() ?? string.Empty;
+            lead.LeadSource = string.IsNullOrWhiteSpace(lead.LeadSource) ? "Other" : lead.LeadSource.Trim();
+            lead.Status = string.IsNullOrWhiteSpace(lead.Status) ? "New" : lead.Status.Trim();
+            lead.ServiceInterest = lead.ServiceInterest?.Trim() ?? string.Empty;
+            lead.Notes = lead.Notes?.Trim() ?? string.Empty;
+            lead.CreatedAt = DateTime.UtcNow;
 
             db.Leads.Add(lead);
 
@@ -55,7 +64,7 @@ public static class LeadEndpoints
             var leads = await db.Leads
                 .AsNoTracking()
                 .Where(x => x.CompanyId == companyId)
-                .OrderByDescending(x => x.CreatedAt)
+                .OrderByDescending(x => x.LeadId)
                 .ToListAsync();
 
             return Results.Ok(leads);

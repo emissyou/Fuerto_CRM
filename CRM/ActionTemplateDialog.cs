@@ -15,7 +15,9 @@ public class ActionTemplateDialog : Form
     private readonly string _apiUrl;
     private readonly HttpClient _http;
 
+    private readonly decimal _revenue;
     private TextBox _scriptBox = null!;
+    private ComboBox _cmbCustomerStatus = null!;
     private ComboBox _cmbOfferType = null!;
     private TextBox _txtOfferValue = null!;
     private TextBox _txtOfferDescription = null!;
@@ -43,6 +45,7 @@ public class ActionTemplateDialog : Form
         _email = email;
         _segment = segment;
         _action = action;
+        _revenue = revenue;
 
         Text = $"Retention Action — {segment}";
         Size = new Size(680, 780);
@@ -74,9 +77,83 @@ public class ActionTemplateDialog : Form
             AutoSize = false,
             TextAlign = ContentAlignment.MiddleCenter,
             Location = new Point(24, 52),
-            Size = new Size(segment.Length * 9 + 20, 22)
+            Size = new Size(Math.Max(80, segment.Length * 9 + 20), 24)
         };
         Controls.Add(badge);
+
+        Controls.Add(new Label
+        {
+            Text = "Status / Tier:",
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(70, 78, 92),
+            AutoSize = true,
+            Location = new Point(140, 56)
+        });
+
+        _cmbCustomerStatus = new ComboBox
+        {
+            Left = 226,
+            Top = 52,
+            Width = 125,
+            Height = 26,
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Font = new Font("Segoe UI", 9f)
+        };
+        _cmbCustomerStatus.Items.AddRange(new object[]
+        {
+            "Champion",
+            "Loyal",
+            "Promising",
+            "Active",
+            "At Risk",
+            "Detractor",
+            "Dormant",
+            "Lost",
+            "VIP",
+            "Regular"
+        });
+
+        int foundIdx = -1;
+        for (int i = 0; i < _cmbCustomerStatus.Items.Count; i++)
+        {
+            if (string.Equals(_cmbCustomerStatus.Items[i]?.ToString(), segment, StringComparison.OrdinalIgnoreCase))
+            {
+                foundIdx = i;
+                break;
+            }
+        }
+        _cmbCustomerStatus.SelectedIndex = foundIdx >= 0 ? foundIdx : 3;
+
+        _cmbCustomerStatus.SelectedIndexChanged += (_, _) =>
+        {
+            var newSeg = _cmbCustomerStatus.SelectedItem?.ToString() ?? "Active";
+            badge.Text = newSeg.ToUpperInvariant();
+            badge.BackColor = SegmentColor(newSeg);
+            badge.Width = Math.Max(80, newSeg.Length * 9 + 20);
+            _scriptBox.Text = BuildScript(customerName, newSeg, revenue);
+        };
+        Controls.Add(_cmbCustomerStatus);
+
+        var btnUpdateTier = new Button
+        {
+            Text = "Save Tier",
+            Left = 358,
+            Top = 51,
+            Width = 85,
+            Height = 28,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(240, 243, 246),
+            ForeColor = Color.FromArgb(28, 32, 40),
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        btnUpdateTier.FlatAppearance.BorderColor = Color.FromArgb(210, 215, 222);
+        btnUpdateTier.Click += async (_, _) =>
+        {
+            var chosen = _cmbCustomerStatus.SelectedItem?.ToString() ?? "Loyal";
+            await UpdateStatusDirectlyAsync(chosen);
+        };
+        Controls.Add(btnUpdateTier);
 
         Controls.Add(new Label
         {
@@ -535,10 +612,12 @@ public class ActionTemplateDialog : Form
                 }
             }
 
+            var chosenStatus = _cmbCustomerStatus?.SelectedItem?.ToString() ?? _segment;
+
             var payload = new
             {
                 customerId = _customerId,
-                segment = _segment,
+                segment = chosenStatus,
                 actionTaken = string.IsNullOrWhiteSpace(offerDescription) ? _action : offerDescription,
                 basis = "",
                 script = _scriptBox.Text,
@@ -549,6 +628,9 @@ public class ActionTemplateDialog : Form
                 offerValue = offerValue,
                 offerDescription = offerDescription,
                 promotionId = promotionId,
+
+                // ---- Status / Loyalty tier update ----
+                newCustomerStatus = chosenStatus,
 
                 // ---- Notes ----
                 notes = _txtNotes.Text.Trim(),
@@ -599,36 +681,151 @@ public class ActionTemplateDialog : Form
         }
     }
 
+    private async Task UpdateStatusDirectlyAsync(string newStatus)
+    {
+        try
+        {
+            _lblLogStatus.Text = $"Updating status to {newStatus}...";
+            _lblLogStatus.ForeColor = Color.FromArgb(110, 118, 132);
+
+            var payload = new { Status = newStatus };
+            var url = $"{_apiUrl}/tenant/{Session.CompanyId}/customers/{_customerId}/status";
+
+            using var req = new HttpRequestMessage(HttpMethod.Put, url);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+            req.Content = new StringContent(
+                JsonSerializer.Serialize(payload),
+                System.Text.Encoding.UTF8,
+                "application/json");
+
+            using var res = await _http.SendAsync(req);
+            if (res.IsSuccessStatusCode)
+            {
+                LoggedActivity = true;
+                _lblLogStatus.Text = $"✓ Status saved as {newStatus}!";
+                _lblLogStatus.ForeColor = Color.FromArgb(34, 140, 78);
+                MessageBox.Show($"Customer {_customerName} status updated to '{newStatus}'!", "Tier Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                _lblLogStatus.Text = "✗ Failed to update: " + err;
+                _lblLogStatus.ForeColor = Color.FromArgb(200, 55, 55);
+            }
+        }
+        catch (Exception ex)
+        {
+            _lblLogStatus.Text = "✗ " + ex.Message;
+            _lblLogStatus.ForeColor = Color.FromArgb(200, 55, 55);
+        }
+    }
+
     private async Task SendEmailAsync()
     {
-        if (string.IsNullOrWhiteSpace(_email))
+        string emailToUse = _email;
+        if (string.IsNullOrWhiteSpace(emailToUse))
         {
-            MessageBox.Show("Customer has no email address on file.", "Cannot Send Email", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
+            using var prompt = new CrmModalDialog("Customer Email", $"Enter email address for {_customerName}:", "✉", "Proceed", 420);
+            var txtManual = prompt.AddTextField("Email Address *", "name@example.com", "", true);
+            if (prompt.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(txtManual.Text))
+            {
+                return;
+            }
+            emailToUse = txtManual.Text.Trim();
         }
 
         string company = Session.CompanyName ?? "Fuerto CRM";
-        string subject = $"Exclusive Offer for {_customerName} — {_segment} Customer Appreciation";
+        var chosenStatus = _cmbCustomerStatus?.SelectedItem?.ToString() ?? _segment;
+        string subject = $"Exclusive Offer for {_customerName} — {chosenStatus} Customer Appreciation";
         string offerDesc = _txtOfferDescription.Text.Trim();
         string body = $"Dear {_customerName},\n\n{_scriptBox.Text}\n\n[PROMOTIONAL OFFER]: {offerDesc}\n\nWarm regards,\n{company}";
 
         using var emailDlg = new CrmModalDialog(
             "Send Retention Email",
-            $"Dispatch retention incentive directly to {_customerName}",
+            $"Dispatch retention incentive directly to {_customerName} ({chosenStatus})",
             "✉",
             "Send Email",
             600);
 
-        var txtTo = emailDlg.AddTextField("Recipient Email", "", _email, true);
+        var txtTo = emailDlg.AddTextField("Recipient Email", "", emailToUse, true);
         txtTo.ReadOnly = true;
         var txtSubj = emailDlg.AddTextField("Email Subject *", "Subject...", subject, true);
         var txtBody = emailDlg.AddTextAreaField("Email Message Body *", "Enter email content...", 160, body);
 
+        if (!EmailSettings.Current.IsConfigured)
+        {
+            var promptConfig = MessageBox.Show(
+                "To deliver real emails to your customers, your Gmail sender account must be configured.\n\nWould you like to configure your Gmail SMTP settings now?",
+                "Email Configuration Required",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+
+            if (promptConfig == DialogResult.Yes)
+            {
+                using var configDlg = new EmailSettingsDialog();
+                configDlg.ShowDialog(this);
+            }
+
+            if (!EmailSettings.Current.IsConfigured)
+            {
+                return;
+            }
+        }
+
         if (emailDlg.ShowDialog(this) == DialogResult.OK)
         {
-            _txtNotes.Text = $"[EMAIL SENT TO {_email}]: {txtSubj.Text}\n" + _txtNotes.Text;
-            await LogActivityAsync();
-            MessageBox.Show($"Retention email successfully dispatched to {_email}!\nRetention action logged.", "Email Sent Successfully", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Cursor = Cursors.WaitCursor;
+            var (success, sendMsg) = await EmailService.SendEmailAsync(emailToUse, txtSubj.Text, txtBody.Text, _customerName);
+            Cursor = Cursors.Default;
+
+            if (success)
+            {
+                _txtNotes.Text = $"[REAL EMAIL SENT TO {emailToUse}]: {txtSubj.Text}\n" + _txtNotes.Text;
+                await LogActivityAsync();
+                MessageBox.Show(
+                    $"✅ Retention email successfully delivered to {emailToUse} via Gmail!\n\nRetention activity recorded in CRM database.",
+                    "Email Delivered Successfully",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            else
+            {
+                var askRetry = MessageBox.Show(
+                    $"Could not deliver email via Gmail:\n\n{sendMsg}\n\n• Click 'Retry' to open Email Settings and fix your credentials.\n• Click 'Ignore' to record this retention activity offline without sending email.\n• Click 'Abort' to cancel.",
+                    "Email Delivery Failed",
+                    MessageBoxButtons.AbortRetryIgnore,
+                    MessageBoxIcon.Warning);
+
+                if (askRetry == DialogResult.Retry)
+                {
+                    using var configDlg = new EmailSettingsDialog();
+                    if (configDlg.ShowDialog(this) == DialogResult.OK)
+                    {
+                        // Retry sending with new settings
+                        Cursor = Cursors.WaitCursor;
+                        var (retrySuccess, retryMsg) = await EmailService.SendEmailAsync(emailToUse, txtSubj.Text, txtBody.Text, _customerName);
+                        Cursor = Cursors.Default;
+
+                        if (retrySuccess)
+                        {
+                            _txtNotes.Text = $"[REAL EMAIL SENT TO {emailToUse}]: {txtSubj.Text}\n" + _txtNotes.Text;
+                            await LogActivityAsync();
+                            MessageBox.Show($"✅ Email successfully delivered to {emailToUse} via Gmail!\nRetention action logged.", "Email Delivered", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+                        else
+                        {
+                            MessageBox.Show($"Delivery still failed: {retryMsg}", "Delivery Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                    }
+                }
+                else if (askRetry == DialogResult.Ignore)
+                {
+                    _txtNotes.Text = $"[EMAIL LOGGED OFFLINE FOR {emailToUse}]: {txtSubj.Text}\n" + _txtNotes.Text;
+                    await LogActivityAsync();
+                    MessageBox.Show("Retention activity recorded in CRM (email pending or logged offline).", "Action Logged", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
         }
     }
 
@@ -644,7 +841,8 @@ public class ActionTemplateDialog : Form
         "At Risk" => Color.FromArgb(220, 120, 30),
         "Dormant" => Color.FromArgb(140, 140, 140),
         "Lost" => Color.FromArgb(110, 110, 110),
-        "Manual" => Color.FromArgb(140, 80, 190),
+        "VIP" => Color.FromArgb(140, 80, 190),
+        "Active" => Color.FromArgb(40, 160, 90),
         _ => Color.FromArgb(110, 118, 132)
     };
 
@@ -657,9 +855,13 @@ public class ActionTemplateDialog : Form
         {
             "Champion" => $"Hi {firstName},\n\nThank you for being one of our most valued clients! We loved working with you and we're always thinking of you.{rev}\n\nWe'd love to help with your next project. As a token of our appreciation, we'd like to offer you 15% off your next consultation.\n\nWarm regards,\nFuerto Interior Design Services",
 
-            "Loyal" => $"Hi {firstName},\n\nWe hope you're enjoying your recently completed project! It's been a pleasure serving you.{rev}\n\nAs a loyal client, we'd like to offer you a 10% loyalty discount on your next project. Whenever you're ready, just reply to this message.\n\nBest regards,\nFuerto Interior Design Services",
+            "Loyal" => $"Hi {firstName},\n\nWe hope you're enjoying your projects with us! It's been a sincere pleasure serving you.{rev}\n\nAs a loyal client, we'd like to offer you a 10% loyalty discount on your next project. Whenever you're ready, just reply to this message.\n\nBest regards,\nFuerto Interior Design Services",
 
-            "Promising" => $"Hi {firstName},\n\nWe hope you're loving your new space! We'd love to hear how it's working for you.{rev}\n\nAre there any other rooms or spaces you're thinking about refreshing? We're here to help with ideas and a quick consultation.\n\nBest regards,\nFuerto Interior Design Services",
+            "Promising" => $"Hi {firstName},\n\nWe hope you're loving your new space! We'd love to hear how everything is working for you.{rev}\n\nAre there any other rooms or spaces you're thinking about refreshing? We're here to help with ideas and a quick consultation.\n\nBest regards,\nFuerto Interior Design Services",
+
+            "Active" => $"Hi {firstName},\n\nThank you for choosing us! We value your partnership and want to ensure you receive the very best experience.{rev}\n\nWe would love to assist you with any upcoming needs or projects. Please let us know how we can best support you.\n\nWarm regards,\nFuerto Interior Design Services",
+
+            "VIP" => $"Hi {firstName},\n\nAs one of our distinguished VIP clients, your trust and satisfaction are our top priority.{rev}\n\nWe are delighted to extend exclusive priority consultation and premium perks for your upcoming projects.\n\nWarm regards,\nFuerto Interior Design Services",
 
             "Detractor" => $"Hi {firstName},\n\nWe're sorry to hear that your experience didn't meet expectations.{rev}\n\nYour feedback is important to us. We'd like to make things right — can we schedule a brief call to discuss how we can improve?\n\nSincerely,\nFuerto Interior Design Services",
 
@@ -669,7 +871,7 @@ public class ActionTemplateDialog : Form
 
             "Manual" => $"Hi {firstName},\n\nWe hope all is well! As a valued customer, we'd like to offer you a special discount on your next project.{rev}\n\nWe truly appreciate your continued support and would love to work with you again.\n\nWarm regards,\nFuerto Interior Design Services",
 
-            _ => $"Hi {firstName},\n\nWe hope all is well.{rev}\n\nWhenever you're ready for your next project, we're here to help.\n\nBest regards,\nFuerto Interior Design Services"
+            _ => $"Hi {firstName},\n\nWe hope all is well with you!{rev}\n\nWhenever you're ready for your next project or consultation, we're here to help.\n\nBest regards,\nFuerto Interior Design Services"
         };
     }
 }

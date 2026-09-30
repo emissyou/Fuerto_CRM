@@ -239,7 +239,8 @@ public class BranchesPage : Panel
             if (res.IsSuccessStatusCode)
             {
                 var json = await res.Content.ReadAsStringAsync();
-                _allBranches = JsonSerializer.Deserialize<List<JsonElement>>(json) ?? new();
+                var rawBranches = JsonSerializer.Deserialize<List<JsonElement>>(json) ?? new();
+                _allBranches = CrmTableStyler.SortNewestFirst(rawBranches);
                 UpdateKpiSummaries();
                 ApplyFilters();
                 _lblStatus.Text = $"Loaded {_allBranches.Count} branches.";

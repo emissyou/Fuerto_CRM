@@ -62,26 +62,39 @@ public static class CompanySeeder
         // -------------------------------------------------------------
         // 2. COMPANY DATABASES MAPPING
         // -------------------------------------------------------------
-        async Task EnsureCompanyDb(int companyId, string dbName)
+        async Task EnsureCompanyDb(int companyId, string defaultLocalDbName, string cloudServer, string cloudDb, string credentialKey)
         {
             var dbEntry = await masterDb.CompanyDatabases.FirstOrDefaultAsync(d => d.CompanyId == companyId);
+            bool isCloudMaster = masterDb.Database.GetDbConnection().ConnectionString.Contains("databaseasp.net", StringComparison.OrdinalIgnoreCase);
+
+            string targetServer = isCloudMaster ? cloudServer : "(localdb)\\MSSQLLocalDB";
+            string targetDb = isCloudMaster ? cloudDb : defaultLocalDbName;
+            string targetKey = isCloudMaster ? credentialKey : "TenantA";
+
             if (dbEntry == null)
             {
                 masterDb.CompanyDatabases.Add(new CompanyDatabase
                 {
                     CompanyId = companyId,
-                    ServerName = "(localdb)\\MSSQLLocalDB",
-                    DatabaseName = dbName,
-                    CredentialKey = "TenantA",
+                    ServerName = targetServer,
+                    DatabaseName = targetDb,
+                    CredentialKey = targetKey,
                     IsActive = true
                 });
                 await masterDb.SaveChangesAsync();
             }
+            else if (dbEntry.ServerName != targetServer || dbEntry.DatabaseName != targetDb || dbEntry.CredentialKey != targetKey)
+            {
+                dbEntry.ServerName = targetServer;
+                dbEntry.DatabaseName = targetDb;
+                dbEntry.CredentialKey = targetKey;
+                await masterDb.SaveChangesAsync();
+            }
         }
 
-        await EnsureCompanyDb(fuerto.CompanyId, "CRM_Fuerto");
-        await EnsureCompanyDb(salon.CompanyId, "CRM_LRSalon");
-        await EnsureCompanyDb(donut.CompanyId, "CRM_MrDonut");
+        await EnsureCompanyDb(fuerto.CompanyId, "CRM_Fuerto", "db67080.public.databaseasp.net", "db67080", "Fuerto");
+        await EnsureCompanyDb(salon.CompanyId, "CRM_LRSalon", "db70838.public.databaseasp.net", "db70838", "LeoRevita");
+        await EnsureCompanyDb(donut.CompanyId, "CRM_MrDonut", "db70839.public.databaseasp.net", "db70839", "MisterDonut");
 
         // -------------------------------------------------------------
         // 3. COMPANY SUBSCRIPTIONS (Module Entitlements)
@@ -155,6 +168,7 @@ public static class CompanySeeder
         {
             await using var dbFuerto = await tenantFactory.CreateAsync(fuerto.CompanyId);
             await dbFuerto.Database.EnsureCreatedAsync();
+            await CRM.api.Endpoints.BranchEndpoints.EnsureBranchesTableExistsAsync(dbFuerto);
 
             if (!await dbFuerto.Branches.AnyAsync())
             {
@@ -216,6 +230,7 @@ public static class CompanySeeder
         {
             await using var dbSalon = await tenantFactory.CreateAsync(salon.CompanyId);
             await dbSalon.Database.EnsureCreatedAsync();
+            await CRM.api.Endpoints.BranchEndpoints.EnsureBranchesTableExistsAsync(dbSalon);
 
             if (!await dbSalon.Branches.AnyAsync())
             {
@@ -257,6 +272,7 @@ public static class CompanySeeder
         {
             await using var dbDonut = await tenantFactory.CreateAsync(donut.CompanyId);
             await dbDonut.Database.EnsureCreatedAsync();
+            await CRM.api.Endpoints.BranchEndpoints.EnsureBranchesTableExistsAsync(dbDonut);
 
             if (!await dbDonut.Branches.AnyAsync())
             {
@@ -298,10 +314,9 @@ public static class CompanySeeder
     private static async Task SeedSalon200Async(TenantErpDbContext dbSalon, int companyId)
     {
         int existingCount = await dbSalon.Customers.CountAsync();
-        if (existingCount >= 200) return;
-
         var rng = new Random(101);
 
+        // Shared name arrays – used by both Customer seeding and Leads seeding below
         string[] firstNames = {
             "Camille", "Bea", "Kathryn", "Sarah", "Marian", "Anne", "Nadine", "Liza", "Yassi", "Heart",
             "Kristine", "Angel", "Julia", "Janella", "Gabbi", "Francine", "Andrea", "Ivana", "Sue", "Miles",
@@ -319,36 +334,39 @@ public static class CompanySeeder
             "Mercado", "Soriano", "De Leon", "Pangilinan", "Padilla", "Dela Cruz", "Estrada", "Alvarez", "Velasco", "Morales"
         };
 
-        string[] cities = { "Quezon City", "Makati City", "Taguig (BGC)", "Mandaluyong", "Pasig City", "San Juan", "Manila", "Alabang", "Paranaque", "Marikina" };
-        string[] types = { "VIP", "Regular", "Regular", "Regular", "Corporate", "Walk-in" };
-
-        var newCustomers = new List<Customer>();
-        for (int i = existingCount + 1; i <= 200; i++)
+        if (existingCount < 200)
         {
-            string fn = firstNames[rng.Next(firstNames.Length)];
-            string ln = lastNames[rng.Next(lastNames.Length)];
-            string email = $"{fn.ToLower()}.{ln.ToLower()}{i}@phmail.com";
-            string phone = $"0917{rng.Next(1000000, 9999999)}";
-            string city = cities[rng.Next(cities.Length)];
-            string cType = types[rng.Next(types.Length)];
+            string[] cities = { "Quezon City", "Makati City", "Taguig (BGC)", "Mandaluyong", "Pasig City", "San Juan", "Manila", "Alabang", "Paranaque", "Marikina" };
+            string[] types = { "VIP", "Regular", "Regular", "Regular", "Corporate", "Walk-in" };
 
-            newCustomers.Add(new Customer
+            var newCustomers = new List<Customer>();
+            for (int i = existingCount + 1; i <= 200; i++)
             {
-                CompanyId = companyId,
-                FirstName = fn,
-                LastName = ln,
-                Email = email,
-                Phone = phone,
-                CustomerType = cType,
-                Address = $"{rng.Next(12, 850)} Katipunan Ave, {city}",
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow.AddDays(-rng.Next(10, 360)),
-                Notes = cType == "VIP" ? "VIP member - prefers Senior Stylist" : "Preferred branch: SM North / Megamall"
-            });
-        }
+                string fn = firstNames[rng.Next(firstNames.Length)];
+                string ln = lastNames[rng.Next(lastNames.Length)];
+                string email = $"{fn.ToLower()}.{ln.ToLower()}{i}@phmail.com";
+                string phone = $"0917{rng.Next(1000000, 9999999)}";
+                string city = cities[rng.Next(cities.Length)];
+                string cType = types[rng.Next(types.Length)];
 
-        dbSalon.Customers.AddRange(newCustomers);
-        await dbSalon.SaveChangesAsync();
+                newCustomers.Add(new Customer
+                {
+                    CompanyId = companyId,
+                    FirstName = fn,
+                    LastName = ln,
+                    Email = email,
+                    Phone = phone,
+                    CustomerType = cType,
+                    Address = $"{rng.Next(12, 850)} Katipunan Ave, {city}",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow.AddDays(-rng.Next(10, 360)),
+                    Notes = cType == "VIP" ? "VIP member - prefers Senior Stylist" : "Preferred branch: SM North / Megamall"
+                });
+            }
+
+            dbSalon.Customers.AddRange(newCustomers);
+            await dbSalon.SaveChangesAsync();
+        }
 
         var allCustomers = await dbSalon.Customers.OrderBy(c => c.CustomerId).ToListAsync();
 
@@ -565,78 +583,79 @@ public static class CompanySeeder
     private static async Task SeedDonut200Async(TenantErpDbContext dbDonut, int companyId)
     {
         int existingCount = await dbDonut.Customers.CountAsync();
-        if (existingCount >= 200) return;
-
         var rng = new Random(202);
 
-        string[] corporateClients = {
-            "San Miguel Foods Corp", "SM Megamall Supermarket", "Metro Bakeshop Distribution", "Robinsons Retail Stores",
-            "Sunrise Coffee Chain Hub", "Ateneo Campus Canteen", "BGC Tech Park Catering", "Shell Select North Kiosk",
-            "Caltex Star Mart Ortigas", "Greenhills Canteen Concessions", "Puregold Supermarket Hub", "7-Eleven Consignment Partner",
-            "Mini Stop Bulk Distribution", "UST Student Canteen Services", "Ayala Malls Event Center", "Makati Medical Center Cafe",
-            "St. Luke's Hospital Pantry", "Toyota Motors Employee Lounge", "Jollibee Corp Commissary", "San Miguel Brewery Canteen",
-            "BDO Unibank Tower Pantry", "Accenture BGC Employee Events", "Convergys Eastwood Cafeteria", "Teleperformance Ortigas Hub",
-            "Philippine Airlines Catering", "Globe Telecom Corporate Events", "PLDT Head Office Pantry", "De La Salle Greenhills Canteen",
-            "Megaworld Lifestyle Malls", "Filinvest Alabang Corporate Kiosk", "Universal Robina Commissary", "Monde Nissin Event Partners",
-            "Golden Arches Employee Hub", "Shopee Philippines Logistics Canteen", "Lazada Pasig Sorting Hub Cafe", "Grab Philippines HQ Pantry",
-            "Asian Hospital Wellness Cafe", "Medical City Pasig Food Court", "Unilever BGC Office Pantry", "Nestle Philippines Event Catering"
-        };
-
-        string[] filipinoFirst = {
-            "Vicente", "Joey", "Vic", "Tito", "Francis", "Eduardo", "Ramon", "Jaime", "Manuel", "Antonio",
-            "Carlos", "Felipe", "Lorenzo", "Gabriel", "Mateo", "Enrico", "Dante", "Arthur", "Rolando", "Danilo",
-            "Maria", "Teresa", "Lourdes", "Carmela", "Corazon", "Esperanza", "Leticia", "Rosario", "Divina", "Josefina"
-        };
-
-        string[] filipinoLast = {
-            "Sotto", "De Leon", "Concepcion", "Zobel", "Ayala", "Cojuangco", "Gokongwei", "Sy", "Tan", "Lucio",
-            "Pangilinan", "Villar", "Razon", "Aboitiz", "Consunji", "Lopez", "Ortigas", "Araneta", "Tuason", "Roxas"
-        };
-
-        string[] areas = { "Greenhills, San Juan", "Ortigas Center, Pasig", "Alabang Town Center", "BGC, Taguig", "Makati CBD", "Quezon City Hub", "Muntinlupa", "Mandaluyong", "Pasay", "Paranaque" };
-
-        var newCustomers = new List<Customer>();
-        for (int i = existingCount + 1; i <= 200; i++)
+        if (existingCount < 200)
         {
-            string fn, ln, email, phone, cType;
-            if (i <= 110)
+            string[] corporateClients = {
+                "San Miguel Foods Corp", "SM Megamall Supermarket", "Metro Bakeshop Distribution", "Robinsons Retail Stores",
+                "Sunrise Coffee Chain Hub", "Ateneo Campus Canteen", "BGC Tech Park Catering", "Shell Select North Kiosk",
+                "Caltex Star Mart Ortigas", "Greenhills Canteen Concessions", "Puregold Supermarket Hub", "7-Eleven Consignment Partner",
+                "Mini Stop Bulk Distribution", "UST Student Canteen Services", "Ayala Malls Event Center", "Makati Medical Center Cafe",
+                "St. Luke's Hospital Pantry", "Toyota Motors Employee Lounge", "Jollibee Corp Commissary", "San Miguel Brewery Canteen",
+                "BDO Unibank Tower Pantry", "Accenture BGC Employee Events", "Convergys Eastwood Cafeteria", "Teleperformance Ortigas Hub",
+                "Philippine Airlines Catering", "Globe Telecom Corporate Events", "PLDT Head Office Pantry", "De La Salle Greenhills Canteen",
+                "Megaworld Lifestyle Malls", "Filinvest Alabang Corporate Kiosk", "Universal Robina Commissary", "Monde Nissin Event Partners",
+                "Golden Arches Employee Hub", "Shopee Philippines Logistics Canteen", "Lazada Pasig Sorting Hub Cafe", "Grab Philippines HQ Pantry",
+                "Asian Hospital Wellness Cafe", "Medical City Pasig Food Court", "Unilever BGC Office Pantry", "Nestle Philippines Event Catering"
+            };
+
+            string[] filipinoFirst = {
+                "Vicente", "Joey", "Vic", "Tito", "Francis", "Eduardo", "Ramon", "Jaime", "Manuel", "Antonio",
+                "Carlos", "Felipe", "Lorenzo", "Gabriel", "Mateo", "Enrico", "Dante", "Arthur", "Rolando", "Danilo",
+                "Maria", "Teresa", "Lourdes", "Carmela", "Corazon", "Esperanza", "Leticia", "Rosario", "Divina", "Josefina"
+            };
+
+            string[] filipinoLast = {
+                "Sotto", "De Leon", "Concepcion", "Zobel", "Ayala", "Cojuangco", "Gokongwei", "Sy", "Tan", "Lucio",
+                "Pangilinan", "Villar", "Razon", "Aboitiz", "Consunji", "Lopez", "Ortigas", "Araneta", "Tuason", "Roxas"
+            };
+
+            string[] areas = { "Greenhills, San Juan", "Ortigas Center, Pasig", "Alabang Town Center", "BGC, Taguig", "Makati CBD", "Quezon City Hub", "Muntinlupa", "Mandaluyong", "Pasay", "Paranaque" };
+
+            var newCustomers = new List<Customer>();
+            for (int i = existingCount + 1; i <= 200; i++)
             {
-                // Corporate / Wholesale partners
-                string corp = corporateClients[(i - 1) % corporateClients.Length];
-                fn = corp;
-                ln = "Accounts";
-                email = $"orders.{corp.ToLower().Replace(" ", "").Replace(".", "")}{i}@corp.ph";
-                phone = $"0917{rng.Next(1000000, 9999999)}";
-                cType = (i % 2 == 0) ? "Corporate" : "Wholesale";
-            }
-            else
-            {
-                // Franchisees / VIP retail bulk clients
-                fn = filipinoFirst[rng.Next(filipinoFirst.Length)];
-                ln = filipinoLast[rng.Next(filipinoLast.Length)];
-                email = $"{fn.ToLower()}.{ln.ToLower()}{i}@donutvip.ph";
-                phone = $"0918{rng.Next(1000000, 9999999)}";
-                cType = (i % 3 == 0) ? "Franchisee" : ((i % 2 == 0) ? "VIP" : "Regular");
+                string fn, ln, email, phone, cType;
+                if (i <= 110)
+                {
+                    // Corporate / Wholesale partners
+                    string corp = corporateClients[(i - 1) % corporateClients.Length];
+                    fn = corp;
+                    ln = "Accounts";
+                    email = $"orders.{corp.ToLower().Replace(" ", "").Replace(".", "")}{i}@corp.ph";
+                    phone = $"0917{rng.Next(1000000, 9999999)}";
+                    cType = (i % 2 == 0) ? "Corporate" : "Wholesale";
+                }
+                else
+                {
+                    // Franchisees / VIP retail bulk clients
+                    fn = filipinoFirst[rng.Next(filipinoFirst.Length)];
+                    ln = filipinoLast[rng.Next(filipinoLast.Length)];
+                    email = $"{fn.ToLower()}.{ln.ToLower()}{i}@donutvip.ph";
+                    phone = $"0918{rng.Next(1000000, 9999999)}";
+                    cType = (i % 3 == 0) ? "Franchisee" : ((i % 2 == 0) ? "VIP" : "Regular");
+                }
+
+                string area = areas[rng.Next(areas.Length)];
+                newCustomers.Add(new Customer
+                {
+                    CompanyId = companyId,
+                    FirstName = fn,
+                    LastName = ln,
+                    Email = email,
+                    Phone = phone,
+                    CustomerType = cType,
+                    Address = $"{rng.Next(10, 500)} Commercial Blvd, {area}",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow.AddDays(-rng.Next(15, 360)),
+                    Notes = cType == "Corporate" ? "Recurring weekly delivery contract" : "Preferred branch: Greenhills / Alabang"
+                });
             }
 
-            string area = areas[rng.Next(areas.Length)];
-            newCustomers.Add(new Customer
-            {
-                CompanyId = companyId,
-                FirstName = fn,
-                LastName = ln,
-                Email = email,
-                Phone = phone,
-                CustomerType = cType,
-                Address = $"{rng.Next(10, 500)} Commercial Blvd, {area}",
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow.AddDays(-rng.Next(15, 360)),
-                Notes = cType == "Corporate" ? "Recurring weekly delivery contract" : "Preferred branch: Greenhills / Alabang"
-            });
+            dbDonut.Customers.AddRange(newCustomers);
+            await dbDonut.SaveChangesAsync();
         }
-
-        dbDonut.Customers.AddRange(newCustomers);
-        await dbDonut.SaveChangesAsync();
 
         var allCustomers = await dbDonut.Customers.OrderBy(c => c.CustomerId).ToListAsync();
 

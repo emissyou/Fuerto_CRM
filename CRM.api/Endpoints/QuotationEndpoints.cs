@@ -1,6 +1,7 @@
-﻿using CRM.api.Models;
+using CRM.api.Models;
 using CRM.api.Security;
 using CRM.domain.Entities;
+using CRM.domain.Enums;
 using CRM.infrastructure.Data;
 using CRM.infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -66,6 +67,16 @@ public static class QuotationEndpoints
                 });
             }
 
+            quotation.Status = string.IsNullOrWhiteSpace(quotation.Status) ? QuotationStatus.Draft : quotation.Status;
+            quotation.PaymentStatus = string.IsNullOrWhiteSpace(quotation.PaymentStatus) ? PaymentStatus.Pending : quotation.PaymentStatus;
+            quotation.ApprovalStatus = string.IsNullOrWhiteSpace(quotation.ApprovalStatus) ? "Pending" : quotation.ApprovalStatus;
+            quotation.Notes ??= string.Empty;
+            quotation.PaymentMethod ??= string.Empty;
+            quotation.PaymentReference ??= string.Empty;
+            quotation.ApprovedByName ??= string.Empty;
+            quotation.ApprovedByUserId ??= string.Empty;
+            quotation.RejectionReason ??= string.Empty;
+
             db.Quotations.Add(quotation);
 
             await db.SaveChangesAsync();
@@ -95,7 +106,7 @@ public static class QuotationEndpoints
                 .AsNoTracking()
                 .Include(x => x.Project)
                 .Where(x => x.CompanyId == companyId)
-                .OrderByDescending(x => x.QuotationDate)
+                .OrderByDescending(x => x.QuotationId)
                 .ToListAsync();
 
             return Results.Ok(quotations);

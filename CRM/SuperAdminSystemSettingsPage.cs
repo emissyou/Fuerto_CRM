@@ -68,14 +68,8 @@ public class SuperAdminSystemSettingsPage : Panel
             "Enabling maintenance mode will prevent all tenant logins and show a maintenance page.",
             "Maintenance Mode", false));
 
-        // ── 4. SECTION: EMAIL & NOTIFICATIONS ─────────────────────────────
-        contentContainer.Controls.Add(BuildSectionCard("📧  Email & Notification Settings", new[]
-        {
-            ("SMTP Host",                    "smtp.fuerto.local",                       false),
-            ("SMTP Port",                    "587",                                     false),
-            ("Sender Email",                 "noreply@fuerto.local",                    false),
-            ("Admin Alert Email",            "admin@fuerto.local",                      false),
-        }));
+        // ── 4. SECTION: EMAIL & NOTIFICATIONS (REAL GMAIL SMTP) ───────────
+        contentContainer.Controls.Add(BuildEmailSettingsCard());
 
         // ── 5. SECTION: SECURITY ──────────────────────────────────────────
         contentContainer.Controls.Add(BuildToggleCard("🔒  Security Settings",
@@ -470,6 +464,78 @@ public class SuperAdminSystemSettingsPage : Panel
             Location  = new Point(44, 42),
             TextAlign = ContentAlignment.MiddleLeft
         });
+
+        return card;
+    }
+
+    private Panel BuildEmailSettingsCard()
+    {
+        var settings = EmailSettings.Load();
+
+        var card = new Panel
+        {
+            Width     = 950,
+            Height    = 130,
+            BackColor = CCard,
+            Margin    = new Padding(0, 0, 0, 14),
+            Padding   = new Padding(22, 14, 22, 14)
+        };
+        card.Paint += (_, pe) =>
+        {
+            pe.Graphics.DrawRectangle(new Pen(CBorder, 1), 0, 0, card.Width - 1, card.Height - 1);
+            using var blueRail = new SolidBrush(CBlue);
+            pe.Graphics.FillRectangle(blueRail, 0, 0, 4, card.Height);
+        };
+
+        var lblTitle = new Label
+        {
+            Text      = "📧  Gmail & SMTP Email Delivery Settings",
+            Font      = new Font("Segoe UI", 11f, FontStyle.Bold),
+            ForeColor = CText,
+            AutoSize  = true,
+            Location  = new Point(14, 12)
+        };
+        card.Controls.Add(lblTitle);
+
+        var lblDesc = new Label
+        {
+            Text      = settings.IsConfigured
+                ? $"✔ Configured Sender: {settings.SenderEmail} ({settings.SenderDisplayName}) · Server: {settings.SmtpHost}:{settings.SmtpPort} (SSL)"
+                : "⚠️ No Gmail SMTP credentials configured. Customer retention and notification emails cannot be sent until configured.",
+            Font      = new Font("Segoe UI", 9f),
+            ForeColor = settings.IsConfigured ? CGreen : CMuted,
+            AutoSize  = true,
+            Location  = new Point(14, 38)
+        };
+        card.Controls.Add(lblDesc);
+
+        var btnConfig = new Button
+        {
+            Text      = "⚙  Configure & Test Gmail Settings",
+            Left      = 14,
+            Top       = 70,
+            Width     = 260,
+            Height    = 38,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = CBlue,
+            ForeColor = Color.White,
+            Font      = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+            Cursor    = Cursors.Hand
+        };
+        btnConfig.FlatAppearance.BorderSize = 0;
+        btnConfig.Click += (_, _) =>
+        {
+            using var dlg = new EmailSettingsDialog();
+            if (dlg.ShowDialog(FindForm()) == DialogResult.OK)
+            {
+                var refreshed = EmailSettings.Load();
+                lblDesc.ForeColor = refreshed.IsConfigured ? CGreen : CMuted;
+                lblDesc.Text = refreshed.IsConfigured
+                    ? $"✔ Configured Sender: {refreshed.SenderEmail} ({refreshed.SenderDisplayName}) · Server: {refreshed.SmtpHost}:{refreshed.SmtpPort} (SSL)"
+                    : "⚠️ No Gmail SMTP credentials configured.";
+            }
+        };
+        card.Controls.Add(btnConfig);
 
         return card;
     }

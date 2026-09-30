@@ -21,12 +21,12 @@ public static class BranchEndpoints
             }
 
             await using var db = await tenantFactory.CreateAsync(companyId);
+            await EnsureBranchesTableExistsAsync(db);
 
             var branches = await db.Branches
                 .AsNoTracking()
                 .Where(x => x.CompanyId == companyId)
-                .OrderByDescending(x => x.IsMainBranch)
-                .ThenBy(x => x.BranchName)
+                .OrderByDescending(x => x.BranchId)
                 .ToListAsync();
 
             return Results.Ok(branches);
@@ -46,6 +46,7 @@ public static class BranchEndpoints
             }
 
             await using var db = await tenantFactory.CreateAsync(companyId);
+            await EnsureBranchesTableExistsAsync(db);
 
             var branch = await db.Branches
                 .AsNoTracking()
@@ -75,6 +76,7 @@ public static class BranchEndpoints
             }
 
             await using var db = await tenantFactory.CreateAsync(companyId);
+            await EnsureBranchesTableExistsAsync(db);
 
             // If this is set as main branch, unset existing main branch
             if (branch.IsMainBranch)
@@ -112,6 +114,7 @@ public static class BranchEndpoints
             }
 
             await using var db = await tenantFactory.CreateAsync(companyId);
+            await EnsureBranchesTableExistsAsync(db);
 
             var branch = await db.Branches
                 .FirstOrDefaultAsync(x => x.BranchId == id && x.CompanyId == companyId);
@@ -159,6 +162,7 @@ public static class BranchEndpoints
             }
 
             await using var db = await tenantFactory.CreateAsync(companyId);
+            await EnsureBranchesTableExistsAsync(db);
 
             var branch = await db.Branches
                 .FirstOrDefaultAsync(x => x.BranchId == id && x.CompanyId == companyId);
@@ -174,5 +178,31 @@ public static class BranchEndpoints
             return Results.Ok(new { message = "Branch deleted successfully." });
         })
         .RequireAuthorization();
+    }
+
+    public static async Task EnsureBranchesTableExistsAsync(CRM.infrastructure.Data.TenantErpDbContext db)
+    {
+        try
+        {
+            const string sql = @"
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Branches')
+BEGIN
+    CREATE TABLE [Branches] (
+        [BranchId] int NOT NULL IDENTITY(1,1),
+        [CompanyId] int NOT NULL,
+        [BranchCode] nvarchar(50) NOT NULL,
+        [BranchName] nvarchar(200) NOT NULL,
+        [Address] nvarchar(500) NULL,
+        [ContactNumber] nvarchar(50) NULL,
+        [Email] nvarchar(100) NULL,
+        [IsMainBranch] bit NOT NULL DEFAULT 0,
+        [IsActive] bit NOT NULL DEFAULT 1,
+        [CreatedAt] datetime2 NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT [PK_Branches] PRIMARY KEY ([BranchId])
+    );
+END";
+            await db.Database.ExecuteSqlRawAsync(sql);
+        }
+        catch { }
     }
 }

@@ -270,7 +270,7 @@ public class CrmModalDialog : Form
     /// <summary>
     /// Add a dropdown combobox field.
     /// </summary>
-    public ComboBox AddDropdownField(string label, object[] items, object? selectedItem = null, bool required = false)
+    public ComboBox AddDropdownField(string label, object[] items, object? selectedItem = null, bool required = false, bool isSearchable = false)
     {
         AddLabel(label, required, 32, _currentY, _formContentWidth);
         _currentY += 22;
@@ -281,7 +281,9 @@ public class CrmModalDialog : Form
             Top           = _currentY,
             Width         = _formContentWidth,
             Height        = 36,
-            DropDownStyle = ComboBoxStyle.DropDownList,
+            DropDownStyle = isSearchable ? ComboBoxStyle.DropDown : ComboBoxStyle.DropDownList,
+            AutoCompleteMode = isSearchable ? AutoCompleteMode.SuggestAppend : AutoCompleteMode.None,
+            AutoCompleteSource = isSearchable ? AutoCompleteSource.ListItems : AutoCompleteSource.None,
             Font          = new Font("Segoe UI", 9.75f),
             FlatStyle     = FlatStyle.System
         };
@@ -296,6 +298,66 @@ public class CrmModalDialog : Form
         _currentY += 54;
         UpdateDialogHeight();
         return cmb;
+    }
+
+    /// <summary>
+    /// Add a searchable dropdown combobox field with auto-completion.
+    /// </summary>
+    public ComboBox AddSearchableDropdownField(string label, object[] items, object? selectedItem = null, bool required = false)
+    {
+        return AddDropdownField(label, items, selectedItem, required, isSearchable: true);
+    }
+
+    /// <summary>
+    /// Add two side-by-side dropdown fields.
+    /// </summary>
+    public void AddTwoDropdownFields(
+        string label1, object[] items1, out ComboBox cmb1,
+        string label2, object[] items2, out ComboBox cmb2,
+        bool req1 = false, bool req2 = false,
+        bool isSearchable1 = false, bool isSearchable2 = false)
+    {
+        int colW = (_formContentWidth - 14) / 2;
+        int col2X = 32 + colW + 14;
+
+        AddLabel(label1, req1, 32, _currentY, colW);
+        AddLabel(label2, req2, col2X, _currentY, colW);
+        _currentY += 22;
+
+        cmb1 = new ComboBox
+        {
+            Left = 32,
+            Top = _currentY,
+            Width = colW,
+            Height = 36,
+            DropDownStyle = isSearchable1 ? ComboBoxStyle.DropDown : ComboBoxStyle.DropDownList,
+            AutoCompleteMode = isSearchable1 ? AutoCompleteMode.SuggestAppend : AutoCompleteMode.None,
+            AutoCompleteSource = isSearchable1 ? AutoCompleteSource.ListItems : AutoCompleteSource.None,
+            Font = new Font("Segoe UI", 9.75f),
+            FlatStyle = FlatStyle.System
+        };
+        cmb1.Items.AddRange(items1);
+        if (cmb1.Items.Count > 0) cmb1.SelectedIndex = 0;
+        _bodyPanel.Controls.Add(cmb1);
+
+        cmb2 = new ComboBox
+        {
+            Left = col2X,
+            Top = _currentY,
+            Width = colW,
+            Height = 36,
+            DropDownStyle = isSearchable2 ? ComboBoxStyle.DropDown : ComboBoxStyle.DropDownList,
+            AutoCompleteMode = isSearchable2 ? AutoCompleteMode.SuggestAppend : AutoCompleteMode.None,
+            AutoCompleteSource = isSearchable2 ? AutoCompleteSource.ListItems : AutoCompleteSource.None,
+            Font = new Font("Segoe UI", 9.75f),
+            FlatStyle = FlatStyle.System
+        };
+        cmb2.Items.AddRange(items2);
+        if (cmb2.Items.Count > 0) cmb2.SelectedIndex = 0;
+        _bodyPanel.Controls.Add(cmb2);
+
+        _currentY += 54;
+        UpdateDialogHeight();
     }
 
     /// <summary>
@@ -507,5 +569,48 @@ public class CrmModalDialog : Form
         path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
         path.CloseFigure();
         return path;
+    }
+}
+
+/// <summary>
+/// Strong-typed ComboBox item with search text, display text, and associated entity ID/data.
+/// </summary>
+public class CrmComboItem
+{
+    public object? Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Subtext { get; set; } = string.Empty;
+    public object? Tag { get; set; }
+    public System.Text.Json.JsonElement? Element { get; set; }
+
+    public override string ToString()
+    {
+        if (string.IsNullOrWhiteSpace(Subtext))
+            return Name;
+        return $"{Name} — {Subtext}";
+    }
+
+    public static CrmComboItem? FromControl(ComboBox cmb)
+    {
+        if (cmb.SelectedItem is CrmComboItem item)
+            return item;
+
+        if (!string.IsNullOrWhiteSpace(cmb.Text))
+        {
+            var text = cmb.Text.Trim();
+            var items = cmb.Items.OfType<CrmComboItem>().ToList();
+
+            var exact = items.FirstOrDefault(i =>
+                string.Equals(i.ToString(), text, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(i.Name, text, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) return exact;
+
+            var partial = items.FirstOrDefault(i =>
+                i.ToString().Contains(text, StringComparison.OrdinalIgnoreCase) ||
+                i.Name.Contains(text, StringComparison.OrdinalIgnoreCase));
+            if (partial != null) return partial;
+        }
+
+        return null;
     }
 }

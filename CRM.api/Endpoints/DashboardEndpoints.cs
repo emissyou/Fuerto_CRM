@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -61,7 +61,7 @@ public static class DashboardEndpoints
             var recentActivities = await db.Activities
                 .AsNoTracking()
                 .Where(x => x.CompanyId == companyId)
-                .OrderByDescending(x => x.ActivityDate)
+                .OrderByDescending(x => x.ActivityId)
                 .Take(5)
                 .Select(x => new
                 {

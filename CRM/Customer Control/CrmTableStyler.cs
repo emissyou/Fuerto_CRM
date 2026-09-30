@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Text.Json;
 
 namespace CRM_DesignServices.winforms;
 
@@ -524,6 +525,89 @@ public static class CrmTableStyler
         }
 
         return -1;
+    }
+
+    /// <summary>
+    /// Sorts a collection of JSON records so the newest/just-input record appears first (index 0).
+    /// Uses numeric primary keys (highest ID first) or creation/event timestamps (latest date first).
+    /// </summary>
+    public static List<JsonElement> SortNewestFirst(List<JsonElement> records)
+    {
+        if (records == null || records.Count <= 1) return records ?? new();
+
+        var sample = records[0];
+
+        // Priority 1: Entity ID properties (highest ID was created last)
+        string[] idNames = new[]
+        {
+            "CustomerId", "customerId",
+            "LeadId", "leadId",
+            "ProjectId", "projectId",
+            "QuotationId", "quotationId",
+            "ActivityId", "activityId",
+            "ProjectIssueId", "projectIssueId", "IssueId", "issueId",
+            "ProjectFeedbackId", "projectFeedbackId", "FeedbackId", "feedbackId",
+            "BranchId", "branchId",
+            "PromotionId", "promotionId",
+            "InventoryId", "inventoryId",
+            "SupplierId", "supplierId",
+            "CompanyId", "companyId",
+            "SubscriptionId", "subscriptionId",
+            "ActionId", "actionId", "RetentionActionId", "retentionActionId",
+            "Id", "id"
+        };
+
+        foreach (var idName in idNames)
+        {
+            bool hasId = sample.TryGetProperty(idName, out var prop) &&
+                         (prop.ValueKind == JsonValueKind.Number ||
+                          (prop.ValueKind == JsonValueKind.String && long.TryParse(prop.GetString(), out _)));
+            if (hasId)
+            {
+                return records.OrderByDescending(r =>
+                {
+                    if (r.TryGetProperty(idName, out var p))
+                    {
+                        if (p.ValueKind == JsonValueKind.Number && p.TryGetInt64(out var val))
+                            return val;
+                        if (p.ValueKind == JsonValueKind.String && long.TryParse(p.GetString(), out var sVal))
+                            return sVal;
+                    }
+                    return 0L;
+                }).ToList();
+            }
+        }
+
+        // Priority 2: Creation / Timestamp dates (latest timestamp first)
+        string[] dateNames = new[]
+        {
+            "CreatedAt", "createdAt",
+            "ReportedAt", "reportedAt",
+            "SubmittedAt", "submittedAt",
+            "ActivityDate", "activityDate",
+            "QuotationDate", "quotationDate",
+            "StartDate", "startDate",
+            "Date", "date",
+            "Timestamp", "timestamp"
+        };
+
+        foreach (var dateName in dateNames)
+        {
+            if (sample.TryGetProperty(dateName, out var prop))
+            {
+                return records.OrderByDescending(r =>
+                {
+                    if (r.TryGetProperty(dateName, out var p) && p.ValueKind == JsonValueKind.String &&
+                        DateTime.TryParse(p.GetString(), out var dt))
+                    {
+                        return dt;
+                    }
+                    return DateTime.MinValue;
+                }).ToList();
+            }
+        }
+
+        return records;
     }
 }
 

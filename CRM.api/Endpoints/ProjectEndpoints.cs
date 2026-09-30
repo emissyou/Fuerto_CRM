@@ -1,4 +1,4 @@
-﻿using CRM.api.Models;
+using CRM.api.Models;
 using CRM.api.Security;
 using CRM.domain.Entities;
 using CRM.infrastructure.Services;
@@ -41,9 +41,18 @@ public static class ProjectEndpoints
             project.CompanyId = companyId;
             project.CreatedAt = DateTime.UtcNow;
 
-            // Ensure designer fields are preserved or default
-            project.DesignerId = project.DesignerId;
-            project.DesignerName = project.DesignerName ?? string.Empty;
+            // Ensure string fields are properly initialized
+            project.ProjectCode = string.IsNullOrWhiteSpace(project.ProjectCode) ? $"PRJ-{DateTime.UtcNow:yyyyMMddHHmmss}" : project.ProjectCode.Trim();
+            project.ProjectName = string.IsNullOrWhiteSpace(project.ProjectName) ? "Untitled Project" : project.ProjectName.Trim();
+            project.Status = string.IsNullOrWhiteSpace(project.Status) ? "Planning" : project.Status.Trim();
+            project.DesignStage = string.IsNullOrWhiteSpace(project.DesignStage) ? "Inquiry" : project.DesignStage.Trim();
+            project.ProjectType = project.ProjectType?.Trim() ?? string.Empty;
+            project.Location = project.Location?.Trim() ?? string.Empty;
+            project.Description = project.Description?.Trim() ?? string.Empty;
+            project.DesignNotes = project.DesignNotes?.Trim() ?? string.Empty;
+            project.Notes = project.Notes?.Trim() ?? string.Empty;
+            project.DesignerName = project.DesignerName?.Trim() ?? string.Empty;
+            project.DesignerAssignedBy = project.DesignerAssignedBy?.Trim() ?? string.Empty;
 
             db.Projects.Add(project);
 
@@ -74,7 +83,7 @@ public static class ProjectEndpoints
                 .AsNoTracking()
                 .Include(x => x.Customer)
                 .Where(x => x.CompanyId == companyId)
-                .OrderByDescending(x => x.CreatedAt)
+                .OrderByDescending(x => x.ProjectId)
                 .ToListAsync();
 
             return Results.Ok(projects);

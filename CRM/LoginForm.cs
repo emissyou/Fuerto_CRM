@@ -663,6 +663,59 @@ public partial class LoginForm : Form
 
             Session.CurrentBranchId = null;
             Session.CurrentBranchName = "All Branches";
+            Session.IsOffline = false;
+
+            bool hasAccepted = true;
+            if (root.TryGetProperty("hasAcceptedTerms", out var hat))
+            {
+                hasAccepted = hat.GetBoolean();
+            }
+            Session.HasAcceptedTerms = hasAccepted;
+
+            // If tenant company has not accepted terms yet, display the Desktop Installer EULA Dialog!
+            if (!Session.IsSuperAdmin && !hasAccepted)
+            {
+                lblStatus.Text = "Please review and accept the Platform Terms & Conditions...";
+                lblStatus.ForeColor = Color.FromArgb(234, 179, 8);
+
+                using var termsDlg = new TermsAndConditionsDialog(
+                    ApiUrl,
+                    Session.Token,
+                    Session.CompanyId,
+                    Session.CompanyName,
+                    Session.CompanyCode,
+                    Session.Email);
+
+                var dlgResult = termsDlg.ShowDialog(this);
+                if (dlgResult != DialogResult.OK)
+                {
+                    // User rejected terms: clear session, deny access, return to login screen
+                    Session.Token = null;
+                    Session.CompanyId = null;
+                    Session.Roles.Clear();
+                    Session.HasAcceptedTerms = false;
+
+                    lblStatus.Text = "Access Denied: You must accept the Terms & Conditions to enter Fuerto CRM.";
+                    lblStatus.ForeColor = Color.FromArgb(220, 38, 38);
+                    btnLogin.Enabled = true;
+                    return;
+                }
+
+                Session.HasAcceptedTerms = true;
+            }
+
+            // Cache credentials for seamless offline login
+            OfflineSyncManager.CacheAuth(
+                txtEmail.Text.Trim(),
+                txtPassword.Text,
+                Session.Token ?? "",
+                Session.CompanyId,
+                Session.CompanyName,
+                Session.CompanyCode,
+                Session.AvailedModules,
+                Session.SubscriptionStatus,
+                Session.Roles,
+                Session.HasAcceptedTerms);
 
             lblStatus.Text = "Authentication successful! Launching workspace...";
             lblStatus.ForeColor = CGreen;
@@ -674,7 +727,66 @@ public partial class LoginForm : Form
         }
         catch (Exception ex)
         {
-            lblStatus.Text = "Connection error: " + ex.Message;
+            // If offline, attempt offline cached authentication
+            if (OfflineSyncManager.TryOfflineLogin(
+                txtEmail.Text.Trim(),
+                txtPassword.Text,
+                out var token,
+                out var companyId,
+                out var companyName,
+                out var companyCode,
+                out var availedModules,
+                out var subscriptionStatus,
+                out var roles,
+                out var offlineAccepted))
+            {
+                Session.Token = token;
+                Session.Email = txtEmail.Text.Trim();
+                Session.CompanyId = companyId;
+                Session.CompanyName = companyName ?? "Offline Workspace";
+                Session.CompanyCode = companyCode ?? "LOCAL";
+                Session.AvailedModules = availedModules ?? "All";
+                Session.SubscriptionStatus = subscriptionStatus ?? "Active";
+                Session.Roles = roles ?? new List<string> { "Admin" };
+                Session.CurrentBranchId = null;
+                Session.CurrentBranchName = "Local Offline Store";
+                Session.IsOffline = true;
+                Session.HasAcceptedTerms = offlineAccepted;
+
+                if (!Session.IsSuperAdmin && !offlineAccepted)
+                {
+                    using var termsDlg = new TermsAndConditionsDialog(
+                        ApiUrl,
+                        Session.Token,
+                        Session.CompanyId,
+                        Session.CompanyName,
+                        Session.CompanyCode,
+                        Session.Email);
+
+                    if (termsDlg.ShowDialog(this) != DialogResult.OK)
+                    {
+                        Session.Token = null;
+                        Session.CompanyId = null;
+                        Session.Roles.Clear();
+                        lblStatus.Text = "Access Denied: You must accept the Terms & Conditions to enter Fuerto CRM.";
+                        lblStatus.ForeColor = Color.FromArgb(220, 38, 38);
+                        btnLogin.Enabled = true;
+                        return;
+                    }
+                    Session.HasAcceptedTerms = true;
+                }
+
+                lblStatus.Text = "Offline mode active · Logged in with cached credentials...";
+                lblStatus.ForeColor = Color.FromArgb(234, 179, 8); // Yellow
+
+                Hide();
+                var mainForm = new Form1();
+                mainForm.FormClosed += (_, _) => Close();
+                mainForm.Show();
+                return;
+            }
+
+            lblStatus.Text = "Server offline: " + ex.Message;
             lblStatus.ForeColor = Color.FromArgb(248, 113, 113);
             btnLogin.Enabled = true;
         }

@@ -69,9 +69,9 @@ public class RetentionPage : Panel
         var btnSendEmail = new Button
         {
             Text = "✉  Send via Email",
-            Left = 198,
+            Left = 196,
             Top = 8,
-            Width = 150,
+            Width = 140,
             Height = 36,
             FlatStyle = FlatStyle.Flat,
             BackColor = Color.FromArgb(37, 99, 235),
@@ -80,7 +80,7 @@ public class RetentionPage : Panel
             Cursor = Cursors.Hand
         };
         btnSendEmail.FlatAppearance.BorderSize = 0;
-        btnSendEmail.Click += (_, _) =>
+        btnSendEmail.Click += async (_, _) =>
         {
             if (_grid.CurrentRow != null && _grid.CurrentRow.Index >= 0)
             {
@@ -101,7 +101,10 @@ public class RetentionPage : Panel
                         GetStr(match, "email"),
                         GetStr(match, "phone"),
                         GetDecimal(match, "totalRevenue"));
-                    dlg.ShowDialog(FindForm());
+                    if (dlg.ShowDialog(FindForm()) == DialogResult.OK)
+                    {
+                        await LoadAsync();
+                    }
                 }
             }
             else
@@ -111,13 +114,31 @@ public class RetentionPage : Panel
         };
         header.Controls.Add(btnSendEmail);
 
+        // ---- Change Customer Status / Tier button ----
+        var btnChangeStatus = new Button
+        {
+            Text = "★  Change Status",
+            Left = 342,
+            Top = 8,
+            Width = 145,
+            Height = 36,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(16, 185, 129),
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        btnChangeStatus.FlatAppearance.BorderSize = 0;
+        btnChangeStatus.Click += async (_, _) => await PromptChangeStatusForSelectedAsync();
+        header.Controls.Add(btnChangeStatus);
+
         // ---- Refresh ----
         _btnRefresh = new Button
         {
             Text = "↻  Refresh",
-            Left = 356,
+            Left = 494,
             Top = 8,
-            Width = 100,
+            Width = 90,
             Height = 36,
             FlatStyle = FlatStyle.Flat,
             BackColor = Color.White,
@@ -137,9 +158,9 @@ public class RetentionPage : Panel
         header.Controls.Add(new Label
         {
             Text = "Per page:",
-            Left = 466,
+            Left = 592,
             Top = 16,
-            Width = 60,
+            Width = 58,
             Height = 24,
             Font = new Font("Segoe UI", 9f),
             ForeColor = Color.FromArgb(110, 118, 132)
@@ -147,9 +168,9 @@ public class RetentionPage : Panel
 
         _cmbPageSize = new ComboBox
         {
-            Left = 530,
+            Left = 652,
             Top = 12,
-            Width = 70,
+            Width = 65,
             Height = 28,
             DropDownStyle = ComboBoxStyle.DropDownList,
             Font = new Font("Segoe UI", 9f)
@@ -185,7 +206,7 @@ public class RetentionPage : Panel
 
         // ---- Filter bar ----
         _filterBar = new CrmFilterBar("Search customer, action, or basis...");
-        _filterBar.AddFilter("Segment", "Segment", "Champion", "Loyal", "Promising", "Detractor", "At Risk", "Dormant", "Lost", "Active");
+        _filterBar.AddFilter("Segment", "Segment", "Champion", "Loyal", "Promising", "Active", "At Risk", "Detractor", "Dormant", "Lost", "VIP", "Regular");
         _filterBar.AddFilter("Urgency", "Priority", "High Priority", "Medium Priority", "Low Priority");
         _filterBar.FiltersChanged += (_, _) =>
         {
@@ -245,27 +266,46 @@ public class RetentionPage : Panel
             }
         };
 
-        _grid.CellDoubleClick += (_, e) =>
+        // ---- Context Menu for fast loyalty and status changes ----
+        var contextMenu = new ContextMenuStrip();
+        var itemChampion = new ToolStripMenuItem("★  Make Champion", null, async (_, _) => await QuickSetStatusForSelectedAsync("Champion"));
+        var itemLoyal = new ToolStripMenuItem("💎  Make Loyal", null, async (_, _) => await QuickSetStatusForSelectedAsync("Loyal"));
+        var itemPromising = new ToolStripMenuItem("⚡  Make Promising", null, async (_, _) => await QuickSetStatusForSelectedAsync("Promising"));
+        var itemActive = new ToolStripMenuItem("🟢  Set as Active", null, async (_, _) => await QuickSetStatusForSelectedAsync("Active"));
+        var itemAtRisk = new ToolStripMenuItem("⚠️  Set as At Risk", null, async (_, _) => await QuickSetStatusForSelectedAsync("At Risk"));
+        var itemDetractor = new ToolStripMenuItem("🔴  Set as Detractor", null, async (_, _) => await QuickSetStatusForSelectedAsync("Detractor"));
+        var itemChangeTier = new ToolStripMenuItem("✎  Change Status / Tier...", null, async (_, _) => await PromptChangeStatusForSelectedAsync());
+        var itemEmail = new ToolStripMenuItem("✉  Send Retention Email", null, async (_, _) => await OpenEmailDialogForSelectedAsync());
+
+        contextMenu.Items.AddRange(new ToolStripItem[]
+        {
+            itemChampion,
+            itemLoyal,
+            itemPromising,
+            itemActive,
+            itemAtRisk,
+            itemDetractor,
+            new ToolStripSeparator(),
+            itemChangeTier,
+            new ToolStripSeparator(),
+            itemEmail
+        });
+
+        _grid.ContextMenuStrip = contextMenu;
+        _grid.CellMouseDown += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
+            {
+                _grid.ClearSelection();
+                _grid.Rows[e.RowIndex].Selected = true;
+                _grid.CurrentCell = _grid.Rows[e.RowIndex].Cells[e.ColumnIndex >= 0 ? e.ColumnIndex : 0];
+            }
+        };
+
+        _grid.CellDoubleClick += async (_, e) =>
         {
             if (e.RowIndex < 0) return;
-            var row = _grid.Rows[e.RowIndex];
-            var name = row.Cells["name"].Value?.ToString() ?? "";
-            var seg = row.Cells["segment"].Value?.ToString() ?? "";
-            var basis = row.Cells["basis"].Value?.ToString() ?? "";
-            var action = row.Cells["action"].Value?.ToString() ?? "";
-
-            var match = _filtered.FirstOrDefault(r => GetStr(r, "fullName") == name);
-            if (match.ValueKind != JsonValueKind.Undefined)
-            {
-                var custId = GetInt(match, "customerId");
-                using var dlg = new ActionTemplateDialog(
-                    _apiUrl, _http,
-                    custId, name, seg, action, basis,
-                    GetStr(match, "email"),
-                    GetStr(match, "phone"),
-                    GetDecimal(match, "totalRevenue"));
-                dlg.ShowDialog(FindForm());
-            }
+            await OpenEmailDialogForSelectedAsync();
         };
 
         // =========================================================
@@ -362,7 +402,7 @@ public class RetentionPage : Panel
             }
 
             using var doc = JsonDocument.Parse(json);
-            _all = doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList();
+            _all = CrmTableStyler.SortNewestFirst(doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList());
 
             _currentPage = 1;
             ApplyFilterAndPaginate();
@@ -462,6 +502,138 @@ public class RetentionPage : Panel
 
         _filterBar.SetRecordCount(_filtered.Count, _all.Count);
         _lblStatus.Text = "";
+    }
+
+    // =========================================================
+    // STATUS & EMAIL ACTIONS
+    // =========================================================
+    private async Task OpenEmailDialogForSelectedAsync()
+    {
+        if (_grid.CurrentRow == null || _grid.CurrentRow.Index < 0)
+        {
+            MessageBox.Show("Please select a customer from the table first.", "Notice", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        int rIdx = _grid.CurrentRow.Index;
+        var row = _grid.Rows[rIdx];
+        var name = row.Cells["name"].Value?.ToString() ?? "";
+        var seg = row.Cells["segment"].Value?.ToString() ?? "";
+        var basis = row.Cells["basis"].Value?.ToString() ?? "";
+        var action = row.Cells["action"].Value?.ToString() ?? "";
+
+        var match = _filtered.FirstOrDefault(r => GetStr(r, "fullName") == name);
+        if (match.ValueKind != JsonValueKind.Undefined)
+        {
+            var custId = GetInt(match, "customerId");
+            using var dlg = new ActionTemplateDialog(
+                _apiUrl, _http,
+                custId, name, seg, action, basis,
+                GetStr(match, "email"),
+                GetStr(match, "phone"),
+                GetDecimal(match, "totalRevenue"));
+            if (dlg.ShowDialog(FindForm()) == DialogResult.OK)
+            {
+                await LoadAsync();
+            }
+        }
+    }
+
+    private async Task QuickSetStatusForSelectedAsync(string newStatus)
+    {
+        if (_grid.CurrentRow == null || _grid.CurrentRow.Index < 0)
+        {
+            MessageBox.Show("Please select a customer from the table first.", "Notice", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var name = _grid.Rows[_grid.CurrentRow.Index].Cells["name"].Value?.ToString() ?? "";
+        var match = _filtered.FirstOrDefault(r => GetStr(r, "fullName") == name);
+        if (match.ValueKind != JsonValueKind.Undefined)
+        {
+            var custId = GetInt(match, "customerId");
+            await SetCustomerStatusAsync(custId, name, newStatus);
+        }
+    }
+
+    private async Task PromptChangeStatusForSelectedAsync()
+    {
+        if (_grid.CurrentRow == null || _grid.CurrentRow.Index < 0)
+        {
+            MessageBox.Show("Please select a customer from the table first.", "Notice", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var name = _grid.Rows[_grid.CurrentRow.Index].Cells["name"].Value?.ToString() ?? "";
+        var match = _filtered.FirstOrDefault(r => GetStr(r, "fullName") == name);
+        if (match.ValueKind == JsonValueKind.Undefined) return;
+
+        var custId = GetInt(match, "customerId");
+        var currentStatus = GetStr(match, "segment");
+
+        using var dlg = new CrmModalDialog(
+            "Change Customer Loyalty & Status",
+            $"Update customer tier and retention segment for {name}",
+            "★",
+            "Update Status",
+            480);
+
+        var txtCust = dlg.AddTextField("Customer", "", $"{name} (ID: {custId})", true);
+        txtCust.ReadOnly = true;
+
+        var cmbStatus = dlg.AddDropdownField("New Loyalty Status / Tier *", new object[]
+        {
+            "Champion",
+            "Loyal",
+            "Promising",
+            "Active",
+            "At Risk",
+            "Detractor",
+            "Dormant",
+            "Lost",
+            "VIP",
+            "Regular"
+        }, currentStatus, true);
+
+        if (dlg.ShowDialog(FindForm()) == DialogResult.OK)
+        {
+            var chosen = cmbStatus.SelectedItem?.ToString() ?? "Loyal";
+            await SetCustomerStatusAsync(custId, name, chosen);
+        }
+    }
+
+    private async Task SetCustomerStatusAsync(int custId, string custName, string newStatus)
+    {
+        try
+        {
+            _lblStatus.Text = $"Updating {custName} to {newStatus}...";
+            _lblStatus.ForeColor = Color.FromArgb(110, 118, 132);
+
+            var payload = new { Status = newStatus };
+            var url = $"{_apiUrl}/tenant/{Session.CompanyId}/customers/{custId}/status";
+
+            using var req = new HttpRequestMessage(HttpMethod.Put, url);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+            req.Content = new StringContent(
+                JsonSerializer.Serialize(payload),
+                System.Text.Encoding.UTF8,
+                "application/json");
+
+            using var res = await _http.SendAsync(req);
+            if (!res.IsSuccessStatusCode)
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                MessageBox.Show($"Failed to update customer status: {err}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            MessageBox.Show($"Customer {custName} has been successfully updated to '{newStatus}'!", "Status Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Error updating status: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     // =========================================================

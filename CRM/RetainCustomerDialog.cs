@@ -19,11 +19,13 @@ public class RetainCustomerDialog : Form
     private TextBox _txtSearch = null!;
     private ListView _lstCustomers = null!;
     private Label _lblSelected = null!;
+    private ComboBox _cmbCustomerStatus = null!;
     private ComboBox _cmbOfferType = null!;
     private TextBox _txtOfferValue = null!;
     private TextBox _txtOfferDescription = null!;
     private TextBox _txtNotes = null!;
     private Button _btnLog = null!;
+    private Button _btnEmail = null!;
     private Label _lblStatus = null!;
 
     public RetainCustomerDialog(string apiUrl, HttpClient http)
@@ -145,7 +147,7 @@ public class RetainCustomerDialog : Form
         {
             Left = 24,
             Top = 430,
-            Width = 260,
+            Width = 210,
             Height = 30,
             DropDownStyle = ComboBoxStyle.DropDownList,
             DropDownWidth = 380,
@@ -162,14 +164,14 @@ public class RetainCustomerDialog : Form
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(70, 78, 92),
             AutoSize = true,
-            Location = new Point(296, 408)
+            Location = new Point(244, 408)
         });
 
         _txtOfferValue = new TextBox
         {
-            Left = 296,
+            Left = 244,
             Top = 430,
-            Width = 80,
+            Width = 65,
             Height = 30,
             Font = new Font("Segoe UI", 10f),
             BorderStyle = BorderStyle.FixedSingle,
@@ -183,20 +185,54 @@ public class RetainCustomerDialog : Form
             Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
             ForeColor = Color.FromArgb(70, 78, 92),
             AutoSize = true,
-            Location = new Point(388, 408)
+            Location = new Point(319, 408)
         });
 
         _txtOfferDescription = new TextBox
         {
-            Left = 388,
+            Left = 319,
             Top = 430,
-            Width = 296,
+            Width = 185,
             Height = 30,
             Font = new Font("Segoe UI", 9.5f),
             BorderStyle = BorderStyle.FixedSingle,
             PlaceholderText = "e.g. 15% off next project"
         };
         Controls.Add(_txtOfferDescription);
+
+        Controls.Add(new Label
+        {
+            Text = "Status / Tier",
+            Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
+            ForeColor = Color.FromArgb(70, 78, 92),
+            AutoSize = true,
+            Location = new Point(514, 408)
+        });
+
+        _cmbCustomerStatus = new ComboBox
+        {
+            Left = 514,
+            Top = 430,
+            Width = 170,
+            Height = 30,
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Font = new Font("Segoe UI", 9.5f)
+        };
+        _cmbCustomerStatus.Items.AddRange(new object[]
+        {
+            "Champion",
+            "Loyal",
+            "Promising",
+            "Active",
+            "At Risk",
+            "Detractor",
+            "Dormant",
+            "Lost",
+            "VIP",
+            "Regular"
+        });
+        _cmbCustomerStatus.SelectedIndex = 3;
+        Controls.Add(_cmbCustomerStatus);
 
         // =========================================================
         // Notes
@@ -258,10 +294,27 @@ public class RetainCustomerDialog : Form
         _btnLog.Click += async (_, _) => await LogRetentionAsync();
         Controls.Add(_btnLog);
 
+        _btnEmail = new Button
+        {
+            Text = "✉  Send via Email",
+            Left = 385,
+            Top = 596,
+            Width = 155,
+            Height = 40,
+            BackColor = Color.FromArgb(37, 99, 235),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+            Cursor = Cursors.Hand
+        };
+        _btnEmail.FlatAppearance.BorderSize = 0;
+        _btnEmail.Click += async (_, _) => await SendEmailAsync();
+        Controls.Add(_btnEmail);
+
         var btnCancel = new Button
         {
             Text = "Cancel",
-            Left = 450,
+            Left = 285,
             Top = 596,
             Width = 90,
             Height = 40,
@@ -476,6 +529,18 @@ public class RetainCustomerDialog : Form
                     }
                 }
             }
+
+            if (_cmbCustomerStatus != null)
+            {
+                for (int i = 0; i < _cmbCustomerStatus.Items.Count; i++)
+                {
+                    if (string.Equals(_cmbCustomerStatus.Items[i].ToString(), segment, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _cmbCustomerStatus.SelectedIndex = i;
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -557,7 +622,8 @@ public class RetainCustomerDialog : Form
         var customerName = GetStr(customer, "fullName");
         var customerEmail = GetStr(customer, "email");
         var customerPhone = GetStr(customer, "phone");
-        var segment = GetStr(customer, "segment");
+        var chosenStatus = _cmbCustomerStatus?.SelectedItem?.ToString();
+        var segment = !string.IsNullOrWhiteSpace(chosenStatus) ? chosenStatus : GetStr(customer, "segment");
         var basis = GetStr(customer, "basis");
         var revenue = GetDecimal(customer, "totalRevenue");
 
@@ -586,6 +652,7 @@ public class RetainCustomerDialog : Form
                 offerValue = offerValue,
                 offerDescription = offerDescription,
                 promotionId = promotionId,
+                newCustomerStatus = chosenStatus,
                 notes = _txtNotes.Text.Trim(),
                 source = "Manual"
             };
@@ -629,6 +696,134 @@ public class RetainCustomerDialog : Form
             _lblStatus.ForeColor = Color.FromArgb(200, 55, 55);
             _btnLog.Enabled = true;
             _btnLog.Text = "Log Retention →";
+        }
+    }
+
+    private async Task SendEmailAsync()
+    {
+        if (_selectedCustomer is null)
+        {
+            MessageBox.Show("Select a customer first.", "Retain Customer");
+            return;
+        }
+
+        var customer = _selectedCustomer.Value;
+        var custName = GetStr(customer, "fullName");
+        var custEmail = GetStr(customer, "email");
+        var revenue = GetDecimal(customer, "totalRevenue");
+        var chosenStatus = _cmbCustomerStatus?.SelectedItem?.ToString() ?? GetStr(customer, "segment");
+
+        string emailToUse = custEmail;
+        if (string.IsNullOrWhiteSpace(emailToUse))
+        {
+            using var prompt = new CrmModalDialog("Customer Email", $"Enter email address for {custName}:", "✉", "Proceed", 420);
+            var txtManual = prompt.AddTextField("Email Address *", "name@example.com", "", true);
+            if (prompt.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(txtManual.Text))
+            {
+                return;
+            }
+            emailToUse = txtManual.Text.Trim();
+        }
+
+        string company = Session.CompanyName ?? "Fuerto CRM";
+        string offerDesc = _txtOfferDescription.Text.Trim();
+        if (string.IsNullOrWhiteSpace(offerDesc))
+        {
+            offerDesc = _txtOfferValue.Text.Trim() + "% off next service";
+        }
+
+        string subject = $"Exclusive Offer for {custName} — {chosenStatus} Appreciation";
+        string body = $"Dear {custName},\n\n" +
+                      $"As a valued customer ({chosenStatus}), we are excited to extend an exclusive offer: {offerDesc}.\n\n" +
+                      $"We truly appreciate your partnership with {company}.\n\n" +
+                      $"Warm regards,\n{company}";
+
+        using var emailDlg = new CrmModalDialog(
+            "Send Retention Email",
+            $"Dispatch retention incentive directly to {custName} ({chosenStatus})",
+            "✉",
+            "Send Email",
+            600);
+
+        var txtTo = emailDlg.AddTextField("Recipient Email", "", emailToUse, true);
+        txtTo.ReadOnly = true;
+        var txtSubj = emailDlg.AddTextField("Email Subject *", "Subject...", subject, true);
+        var txtBody = emailDlg.AddTextAreaField("Email Message Body *", "Enter email content...", 160, body);
+
+        if (!EmailSettings.Current.IsConfigured)
+        {
+            var promptConfig = MessageBox.Show(
+                "To deliver real emails to your customers, your Gmail sender account must be configured.\n\nWould you like to configure your Gmail SMTP settings now?",
+                "Email Configuration Required",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+
+            if (promptConfig == DialogResult.Yes)
+            {
+                using var configDlg = new EmailSettingsDialog();
+                configDlg.ShowDialog(this);
+            }
+
+            if (!EmailSettings.Current.IsConfigured)
+            {
+                return;
+            }
+        }
+
+        if (emailDlg.ShowDialog(this) == DialogResult.OK)
+        {
+            Cursor = Cursors.WaitCursor;
+            var (success, sendMsg) = await EmailService.SendEmailAsync(emailToUse, txtSubj.Text, txtBody.Text, custName);
+            Cursor = Cursors.Default;
+
+            if (success)
+            {
+                _txtNotes.Text = $"[REAL EMAIL SENT TO {emailToUse}]: {txtSubj.Text}\n" + _txtNotes.Text;
+                await LogRetentionAsync();
+                MessageBox.Show(
+                    $"✅ Retention email successfully delivered to {emailToUse} via Gmail!\n\nRetention activity recorded in CRM database.",
+                    "Email Delivered Successfully",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            else
+            {
+                var askRetry = MessageBox.Show(
+                    $"Could not deliver email via Gmail:\n\n{sendMsg}\n\n• Click 'Retry' to open Email Settings and fix your credentials.\n• Click 'Ignore' to record this retention activity offline without sending email.\n• Click 'Abort' to cancel.",
+                    "Email Delivery Failed",
+                    MessageBoxButtons.AbortRetryIgnore,
+                    MessageBoxIcon.Warning);
+
+                if (askRetry == DialogResult.Retry)
+                {
+                    using var configDlg = new EmailSettingsDialog();
+                    if (configDlg.ShowDialog(this) == DialogResult.OK)
+                    {
+                        // Retry sending with new settings
+                        Cursor = Cursors.WaitCursor;
+                        var (retrySuccess, retryMsg) = await EmailService.SendEmailAsync(emailToUse, txtSubj.Text, txtBody.Text, custName);
+                        Cursor = Cursors.Default;
+
+                        if (retrySuccess)
+                        {
+                            _txtNotes.Text = $"[REAL EMAIL SENT TO {emailToUse}]: {txtSubj.Text}\n" + _txtNotes.Text;
+                            await LogRetentionAsync();
+                            MessageBox.Show($"✅ Email successfully delivered to {emailToUse} via Gmail!\nRetention action logged.", "Email Delivered", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+                        else
+                        {
+                            MessageBox.Show($"Delivery still failed: {retryMsg}", "Delivery Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                    }
+                }
+                else if (askRetry == DialogResult.Ignore)
+                {
+                    _txtNotes.Text = $"[EMAIL LOGGED OFFLINE FOR {emailToUse}]: {txtSubj.Text}\n" + _txtNotes.Text;
+                    await LogRetentionAsync();
+                    MessageBox.Show("Retention activity recorded in CRM (email pending or logged offline).", "Action Logged", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
         }
     }
 

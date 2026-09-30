@@ -38,7 +38,7 @@ public static class SuperAdminEndpoints
         app.MapGet("/superadmin/companies", async (MasterErpDbContext db) =>
         {
             var companies = await db.Companies
-                .OrderBy(c => c.CompanyId)
+                .OrderByDescending(c => c.CompanyId)
                 .Select(c => new
                 {
                     c.CompanyId,

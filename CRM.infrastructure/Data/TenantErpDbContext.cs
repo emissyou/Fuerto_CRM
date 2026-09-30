@@ -69,12 +69,10 @@ public class TenantErpDbContext : DbContext
             entity.HasKey(x => x.CustomerId);
 
             entity.Property(x => x.FirstName)
-                .HasMaxLength(100)
-                .IsRequired();
+                .HasMaxLength(100);
 
             entity.Property(x => x.LastName)
-                .HasMaxLength(100)
-                .IsRequired();
+                .HasMaxLength(100);
 
             entity.Property(x => x.Email)
                 .HasMaxLength(200);
@@ -86,8 +84,7 @@ public class TenantErpDbContext : DbContext
                 .HasMaxLength(500);
 
             entity.Property(x => x.CustomerType)
-                .HasMaxLength(50)
-                .IsRequired();
+                .HasMaxLength(50);
 
             entity.Property(x => x.Notes)
                 .HasMaxLength(1000);

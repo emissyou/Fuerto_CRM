@@ -245,7 +245,7 @@ public class PromotionsPage : Panel
             }
 
             using var doc = JsonDocument.Parse(json);
-            _all = doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList();
+            _all = CrmTableStyler.SortNewestFirst(doc.RootElement.EnumerateArray().Select(e => e.Clone()).ToList());
 
             _currentPage = 1;
             ApplyFilterAndRender();

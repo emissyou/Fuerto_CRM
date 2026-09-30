@@ -191,8 +191,19 @@ public class BiDashboardPage : Panel
             _hasLoaded = true;
             RebuildAll();
 
-            _lblStatus.Text = $"Operational intelligence synced at {DateTime.Now:hh:mm:ss tt}  ·  {_projects.Count} Projects  ·  {_retention.Count} Clients  ·  {_leads.Count} Leads  ·  {_designers.Count} Designers";
-            _lblStatus.ForeColor = ColorMuted;
+            bool isOffline = !OfflineSyncManager.IsOnline;
+            bool hasData = _kpis.HasValue || _retention.Count > 0;
+
+            if (isOffline || !hasData)
+            {
+                _lblStatus.Text = $"🟡 Offline Mode — Analytics unavailable. Last sync: {DateTime.Now:hh:mm:ss tt}  ·  Showing cached data only";
+                _lblStatus.ForeColor = Color.FromArgb(161, 98, 7);
+            }
+            else
+            {
+                _lblStatus.Text = $"Operational intelligence synced at {DateTime.Now:hh:mm:ss tt}  ·  {_projects.Count} Projects  ·  {_retention.Count} Clients  ·  {_leads.Count} Leads  ·  {_designers.Count} Designers";
+                _lblStatus.ForeColor = ColorMuted;
+            }
         }
         catch (Exception ex)
         {
@@ -654,10 +665,10 @@ public class BiDashboardPage : Panel
         gridRet.Columns.Add("segment", "SEGMENT");
         gridRet.Columns.Add("action", "RECOMMENDED RETENTION ACTION");
 
-        gridRet.Columns["priority"].FillWeight = 40;
-        gridRet.Columns["customer"].FillWeight = 75;
-        gridRet.Columns["segment"].FillWeight = 55;
-        gridRet.Columns["action"].FillWeight = 130;
+        gridRet.Columns["priority"]!.FillWeight = 40;
+        gridRet.Columns["customer"]!.FillWeight = 75;
+        gridRet.Columns["segment"]!.FillWeight = 55;
+        gridRet.Columns["action"]!.FillWeight = 130;
 
         CrmTableStyler.Apply(gridRet, "segment", "priority");
 
@@ -710,12 +721,12 @@ public class BiDashboardPage : Panel
         gridDes.Columns.Add("quality", "COMMUNICATION");
         gridDes.Columns.Add("score", "SCORE");
 
-        gridDes.Columns["rank"].FillWeight = 25;
-        gridDes.Columns["name"].FillWeight = 85;
-        gridDes.Columns["delivered"].FillWeight = 45;
-        gridDes.Columns["timeliness"].FillWeight = 45;
-        gridDes.Columns["quality"].FillWeight = 50;
-        gridDes.Columns["score"].FillWeight = 45;
+        gridDes.Columns["rank"]!.FillWeight = 25;
+        gridDes.Columns["name"]!.FillWeight = 85;
+        gridDes.Columns["delivered"]!.FillWeight = 45;
+        gridDes.Columns["timeliness"]!.FillWeight = 45;
+        gridDes.Columns["quality"]!.FillWeight = 50;
+        gridDes.Columns["score"]!.FillWeight = 45;
 
         CrmTableStyler.Apply(gridDes);
 

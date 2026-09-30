@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.domain.DTOs;
 using CRM.domain.Entities;
 using CRM.domain.Enums;
@@ -88,6 +88,104 @@ public static class IssueEndpoints
         });
 
         // ============================================================
+        // CREATE / REPORT ISSUE DIRECTLY (with Project or Customer)
+        // POST /tenant/{companyId}/issues
+        // ============================================================
+        group.MapPost("/issues", async (
+            int companyId,
+            CreateIssueRequest request,
+            HttpContext http,
+            ITenantDbContextFactory tenantFactory) =>
+        {
+            if (!TenantAuthorization.IsAuthorized(http, companyId))
+                return Results.Forbid();
+
+            if (string.IsNullOrWhiteSpace(request.Title))
+                return Results.BadRequest(new { message = "Title is required." });
+
+            await using var db = await tenantFactory.CreateAsync(companyId);
+
+            int projectId = request.ProjectId;
+            int customerId = request.CustomerId ?? 0;
+
+            if (projectId > 0)
+            {
+                var project = await db.Projects
+                    .FirstOrDefaultAsync(p => p.ProjectId == projectId && p.CompanyId == companyId);
+                if (project != null && customerId == 0)
+                {
+                    customerId = project.CustomerId;
+                }
+            }
+            else if (customerId > 0)
+            {
+                var project = await db.Projects
+                    .FirstOrDefaultAsync(p => p.CustomerId == customerId && p.CompanyId == companyId);
+                if (project != null)
+                {
+                    projectId = project.ProjectId;
+                }
+            }
+
+            if (customerId <= 0)
+            {
+                var firstCust = await db.Customers.FirstOrDefaultAsync(c => c.CompanyId == companyId);
+                if (firstCust != null)
+                {
+                    customerId = firstCust.CustomerId;
+                }
+            }
+
+            var userId = http.User.FindFirst(
+                System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+            var issue = new ProjectIssue
+            {
+                CompanyId = companyId,
+                ProjectId = projectId,
+                CustomerId = customerId,
+                IssueType = string.IsNullOrWhiteSpace(request.IssueType)
+                    ? IssueType.Complaint
+                    : request.IssueType,
+                Severity = string.IsNullOrWhiteSpace(request.Severity)
+                    ? IssueSeverity.Medium
+                    : request.Severity,
+                Status = string.IsNullOrWhiteSpace(request.Status)
+                    ? IssueStatus.Open
+                    : request.Status,
+                Title = request.Title.Trim(),
+                Description = request.Description?.Trim() ?? "",
+                RequestedAction = request.RequestedAction?.Trim() ?? "",
+                DisputedAmount = request.DisputedAmount,
+                PaymentReference = request.PaymentReference,
+                TargetResolutionDate = request.TargetResolutionDate,
+                ReportedByUserId = userId,
+                ReportedAt = DateTime.UtcNow,
+                IsActive = true
+            };
+
+            db.ProjectIssues.Add(issue);
+
+            db.Activities.Add(new Activity
+            {
+                CompanyId = companyId,
+                ProjectId = projectId > 0 ? projectId : null,
+                CustomerId = customerId > 0 ? customerId : null,
+                ActivityType = "IssueReported",
+                Subject = $"{issue.IssueType}: {issue.Title}",
+                Description = issue.Description,
+                ActivityDate = DateTime.UtcNow,
+                Status = issue.Status
+            });
+
+            await db.SaveChangesAsync();
+
+            return Results.Created(
+                $"/tenant/{companyId}/issues/{issue.ProjectIssueId}",
+                issue);
+        });
+
+        // ============================================================
         // LIST ISSUES (per company, filterable)
         // GET /tenant/{companyId}/issues?status=Open&projectId=1
         // ============================================================
@@ -118,7 +216,7 @@ public static class IssueEndpoints
                 query = query.Where(i => i.ProjectId == projectId.Value);
 
             var issues = await query
-                .OrderByDescending(i => i.ReportedAt)
+                .OrderByDescending(i => i.ProjectIssueId)
                 .ToListAsync();
 
             return Results.Ok(issues);
@@ -245,6 +343,81 @@ public static class IssueEndpoints
             await db.SaveChangesAsync();
 
             return Results.Ok(issue);
+        });
+
+        // ============================================================
+        // UPDATE ISSUE
+        // PUT /tenant/{companyId}/issues/{issueId:int}
+        // ============================================================
+        group.MapPut("/issues/{issueId:int}", async (
+            int companyId,
+            int issueId,
+            CreateIssueRequest request,
+            HttpContext http,
+            ITenantDbContextFactory tenantFactory) =>
+        {
+            if (!TenantAuthorization.IsAuthorized(http, companyId))
+                return Results.Forbid();
+
+            await using var db = await tenantFactory.CreateAsync(companyId);
+
+            var issue = await db.ProjectIssues
+                .FirstOrDefaultAsync(i => i.ProjectIssueId == issueId
+                                       && i.CompanyId == companyId);
+
+            if (issue is null)
+                return Results.NotFound(new { message = "Issue not found." });
+
+            if (!string.IsNullOrWhiteSpace(request.Title))
+                issue.Title = request.Title.Trim();
+            if (!string.IsNullOrWhiteSpace(request.IssueType))
+                issue.IssueType = request.IssueType;
+            if (!string.IsNullOrWhiteSpace(request.Severity))
+                issue.Severity = request.Severity;
+            if (!string.IsNullOrWhiteSpace(request.Status))
+                issue.Status = request.Status;
+            if (request.Description != null)
+                issue.Description = request.Description.Trim();
+            if (request.RequestedAction != null)
+                issue.RequestedAction = request.RequestedAction.Trim();
+            if (request.DisputedAmount.HasValue)
+                issue.DisputedAmount = request.DisputedAmount;
+            if (request.TargetResolutionDate.HasValue)
+                issue.TargetResolutionDate = request.TargetResolutionDate;
+            if (request.ProjectId > 0)
+                issue.ProjectId = request.ProjectId;
+            if (request.CustomerId.HasValue && request.CustomerId > 0)
+                issue.CustomerId = request.CustomerId.Value;
+
+            await db.SaveChangesAsync();
+            return Results.Ok(issue);
+        });
+
+        // ============================================================
+        // DELETE ISSUE
+        // DELETE /tenant/{companyId}/issues/{issueId:int}
+        // ============================================================
+        group.MapDelete("/issues/{issueId:int}", async (
+            int companyId,
+            int issueId,
+            HttpContext http,
+            ITenantDbContextFactory tenantFactory) =>
+        {
+            if (!TenantAuthorization.IsAuthorized(http, companyId))
+                return Results.Forbid();
+
+            await using var db = await tenantFactory.CreateAsync(companyId);
+
+            var issue = await db.ProjectIssues
+                .FirstOrDefaultAsync(i => i.ProjectIssueId == issueId
+                                       && i.CompanyId == companyId);
+
+            if (issue is null)
+                return Results.NotFound(new { message = "Issue not found." });
+
+            db.ProjectIssues.Remove(issue);
+            await db.SaveChangesAsync();
+            return Results.NoContent();
         });
     }
 }

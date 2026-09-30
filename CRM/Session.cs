@@ -17,6 +17,8 @@ public static class Session
 
     public static int? CurrentBranchId { get; set; }
     public static string? CurrentBranchName { get; set; } = "All Branches";
+    public static bool IsOffline { get; set; } = false;
+    public static bool HasAcceptedTerms { get; set; } = false;
 
     public static bool IsSuperAdmin => Roles != null && (Roles.Contains("Super Admin") || Roles.Contains("SuperAdmin"));
     public static bool IsAdmin => Roles != null && Roles.Contains("Admin");

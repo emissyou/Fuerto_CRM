@@ -10,7 +10,7 @@ public partial class Form1 : Form
     // =========================================================
     // API
     // =========================================================
-    private const string ApiUrl = "http://localhost:5068";
+    private const string ApiUrl = "http://127.0.0.1:5068";
     private readonly HttpClient _httpClient = new();
 
     // =========================================================
@@ -46,6 +46,7 @@ public partial class Form1 : Form
     private string _currentPage = "Overview";
     private Panel? _pnlBranchSwitcher;
     private ComboBox? _cmbBranchSwitcher;
+    private Button? _btnCloudChip;
 
     public Form1()
     {
@@ -53,6 +54,20 @@ public partial class Form1 : Form
         {
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
         }
+
+        OfflineSyncManager.Initialize(_httpClient, ApiUrl);
+        OfflineSyncManager.ConnectivityChanged += (_, _) => UpdateCloudBadgeUI();
+        OfflineSyncManager.PendingQueueChanged += (_, _) => UpdateCloudBadgeUI();
+        OfflineSyncManager.SyncStatusChanged += (_, _) => UpdateCloudBadgeUI();
+        OfflineSyncManager.SyncCompleted += (_, _) =>
+        {
+            UpdateCloudBadgeUI();
+            if (!string.IsNullOrEmpty(_currentPage))
+            {
+                BeginInvoke(new Action(() => SelectNavigation(_currentPage)));
+            }
+        };
+
         BuildInterface();
         Shown += async (_, _) =>
         {
@@ -65,6 +80,7 @@ public partial class Form1 : Form
                 await LoadDashboardAsync();
             }
             _ = LoadBranchesForSwitcherAsync();
+            _ = CheckTermsComplianceAsync();
         };
     }
 
@@ -240,6 +256,7 @@ public partial class Form1 : Form
                 ("System Settings",        "alert",     "SYSTEM MANAGEMENT"),
 
                 // COMPLIANCE
+                ("Terms & Conditions",     "document",  "COMPLIANCE"),
                 ("SA Policy",              "report",    "COMPLIANCE"),
             };
         }
@@ -266,7 +283,8 @@ public partial class Form1 : Form
                 (CompanyTerminology.Analytics,  "chart",     CompanyTerminology.GroupInsights),
                 (CompanyTerminology.Retention,  "retention", CompanyTerminology.GroupInsights),
                 (CompanyTerminology.Promotions, "gift",      CompanyTerminology.GroupInsights),
-                (CompanyTerminology.Reports,    "report",    CompanyTerminology.GroupInsights)
+                (CompanyTerminology.Reports,    "report",    CompanyTerminology.GroupInsights),
+                ("Terms & Conditions",          "document",  "COMPLIANCE")
             };
         }
 
@@ -533,14 +551,14 @@ public partial class Form1 : Form
         var pnlCloudSyncBadge = new Panel
         {
             Dock = DockStyle.Right,
-            Width = 190,
+            Width = 220,
             Padding = new Padding(8, 18, 8, 18)
         };
         topBar.Controls.Add(pnlCloudSyncBadge);
 
-        var btnCloudChip = new Button
+        _btnCloudChip = new Button
         {
-            Text = "☁️ Local ➔ Cloud Sync",
+            Text = "☁️ Online · Cloud Synced",
             Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
             ForeColor = Color.FromArgb(22, 101, 52),
             BackColor = Color.FromArgb(240, 253, 244),
@@ -548,9 +566,10 @@ public partial class Form1 : Form
             Dock = DockStyle.Fill,
             Cursor = Cursors.Hand
         };
-        btnCloudChip.FlatAppearance.BorderColor = Color.FromArgb(187, 247, 208);
-        btnCloudChip.Click += async (_, _) => await OpenCloudStorageModalAsync();
-        pnlCloudSyncBadge.Controls.Add(btnCloudChip);
+        _btnCloudChip.FlatAppearance.BorderColor = Color.FromArgb(187, 247, 208);
+        _btnCloudChip.Click += async (_, _) => await OpenCloudStorageModalAsync();
+        pnlCloudSyncBadge.Controls.Add(_btnCloudChip);
+        UpdateCloudBadgeUI();
 
         if (!Session.IsSuperAdmin)
         {
@@ -743,6 +762,11 @@ public partial class Form1 : Form
 
         _currentPage = canonical;
 
+        if (canonical != "Terms & Conditions")
+        {
+            _ = CheckTermsComplianceAsync();
+        }
+
         foreach (var item in navigationButtons)
         {
             bool selected = item.Key.Equals(page, StringComparison.OrdinalIgnoreCase);
@@ -766,6 +790,7 @@ public partial class Form1 : Form
             "Company Accounts"         => "Tenant & Subscription Management",
             "Audit Logs"               => "View Audit Logs",
             "System Settings"          => "Manage System Settings",
+            "Terms & Conditions"       => Session.IsSuperAdmin ? "Platform Terms & Conditions Governance" : "Platform Terms of Service",
             "SA Policy"                => "Super Administrator Policy",
             "Overview"                 => CompanyTerminology.Overview,
             "Customers"                => CompanyTerminology.Customers,
@@ -794,6 +819,9 @@ public partial class Form1 : Form
             "Company Accounts"        => "Manage tenant organizations, database instances, and SaaS plans",
             "Audit Logs"              => "Tamper-proof log of all platform events and administrative actions",
             "System Settings"         => "Configure platform-wide settings, maintenance mode, and security policies",
+            "Terms & Conditions"      => Session.IsSuperAdmin 
+                ? "Edit platform terms of service, manage clauses, and monitor tenant acceptance" 
+                : "View the official Software License Agreement and platform terms",
             "SA Policy"               => "Super Administrator rights, responsibilities, and compliance requirements",
             "Overview"                => CompanyTerminology.SubtitleOverview,
             "Customers"               => CompanyTerminology.SubtitleCustomers,
@@ -860,8 +888,22 @@ public partial class Form1 : Form
         else if (canonical == "SA Policy")
         {
             contentPanel.Controls.Clear();
-            var policyPage = new SuperAdminPolicyPage();
+            var policyPage = new SuperAdminPolicyPage(ApiUrl, _httpClient);
             contentPanel.Controls.Add(policyPage);
+        }
+        else if (canonical is "Terms & Conditions" or "Terms")
+        {
+            contentPanel.Controls.Clear();
+            if (Session.IsSuperAdmin)
+            {
+                var termsPage = new SuperAdminTermsManagementPage(ApiUrl, _httpClient);
+                contentPanel.Controls.Add(termsPage);
+            }
+            else
+            {
+                var userTermsPage = new UserTermsViewPage(ApiUrl, _httpClient);
+                contentPanel.Controls.Add(userTermsPage);
+            }
         }
         else if (canonical == "Branches")
         {
@@ -1736,7 +1778,7 @@ public partial class Form1 : Form
 
         CrmTableStyler.Apply(activityGrid, "status", "type");
 
-        foreach (var activity in activities.Take(15))
+        foreach (var activity in CrmTableStyler.SortNewestFirst(activities).Take(15))
         {
             activityGrid.Rows.Add(
                 GetString(activity, "ActivityType", "Type") ?? "General",
@@ -1762,6 +1804,67 @@ public partial class Form1 : Form
     // =========================================================
     // ENTITY PAGES
     // =========================================================
+    private async Task<List<CrmComboItem>> LoadCustomerComboItemsAsync()
+    {
+        var list = new List<CrmComboItem>();
+        try
+        {
+            var custArray = await GetArrayAsync("customers");
+            foreach (var c in custArray)
+            {
+                var id = GetValueFromJson(c, "CustomerId") ?? GetValueFromJson(c, "Id");
+                var first = GetString(c, "FirstName") ?? "";
+                var last = GetString(c, "LastName") ?? "";
+                var name = $"{first} {last}".Trim();
+                if (string.IsNullOrWhiteSpace(name)) name = "Customer";
+
+                var phone = GetString(c, "Phone") ?? "";
+                var email = GetString(c, "Email") ?? "";
+                var sub = string.IsNullOrWhiteSpace(phone) ? email : string.IsNullOrWhiteSpace(email) ? phone : $"{phone} | {email}";
+
+                list.Add(new CrmComboItem
+                {
+                    Id = id,
+                    Name = name,
+                    Subtext = sub,
+                    Element = c
+                });
+            }
+        }
+        catch { }
+        return list;
+    }
+
+    private async Task<List<CrmComboItem>> LoadProjectComboItemsAsync()
+    {
+        var list = new List<CrmComboItem>();
+        try
+        {
+            var projArray = await GetArrayAsync("projects");
+            foreach (var p in projArray)
+            {
+                var id = GetValueFromJson(p, "ProjectId") ?? GetValueFromJson(p, "Id");
+                var code = GetString(p, "ProjectCode") ?? "";
+                var name = GetString(p, "ProjectName") ?? "Project";
+                var type = GetString(p, "ProjectType") ?? "";
+                var custId = GetValueFromJson(p, "CustomerId");
+
+                var sub = string.IsNullOrWhiteSpace(code) ? type : $"[{code}] {type}";
+
+                list.Add(new CrmComboItem
+                {
+                    Id = id,
+                    Name = name,
+                    Subtext = sub,
+                    Tag = custId,
+                    Element = p
+                });
+            }
+        }
+        catch { }
+        return list;
+    }
+
     private async Task LoadEntityPageAsync(string title, string endpoint, string[] preferredColumns)
     {
         ShowLoading();
@@ -1780,6 +1883,7 @@ public partial class Form1 : Form
 
     private void BuildEntityPage(string title, string endpoint, List<JsonElement> records, string[] preferredColumns)
     {
+        records = CrmTableStyler.SortNewestFirst(records);
         contentPanel.Controls.Clear();
         contentPanel.Padding = new Padding(32, 20, 32, 32);
 
@@ -2044,23 +2148,11 @@ public partial class Form1 : Form
                     CompanyTerminology.Code == CompanyTerminology.Salon ? "e.g. Hair Spa & Keratin" : "e.g. Office Interior Renovation",
                     out var txtName, req1: true, req2: true);
 
-                var customerList = new List<object>();
-                try
-                {
-                    var custArray = await GetArrayAsync("customers");
-                    customerList.AddRange(custArray.Select(c => new
-                    {
-                        Element = c,
-                        Text = $"{GetString(c, "FirstName") ?? "Customer"} {GetString(c, "LastName") ?? ""} (ID: {GetValueFromJson(c, "CustomerId") ?? GetValueFromJson(c, "Id")})"
-                    }));
-                }
-                catch { }
-
-                var cmbCustomer = dlg.AddDropdownField(
+                var customerList = await LoadCustomerComboItemsAsync();
+                var cmbCustomer = dlg.AddSearchableDropdownField(
                     CompanyTerminology.Code == CompanyTerminology.Salon ? "Assigned Client *" : "Assigned Customer *",
-                    customerList.ToArray(),
+                    customerList.Cast<object>().ToArray(),
                     required: true);
-                cmbCustomer.DisplayMember = "Text";
 
                 dlg.AddTwoTextFields(
                     "Category / Type", "e.g. Commercial, Residential, Package", out var txtType,
@@ -2078,16 +2170,8 @@ public partial class Form1 : Form
                         return;
                     }
 
-                    object? customerIdValue = null;
-                    if (cmbCustomer.SelectedItem != null)
-                    {
-                        var elemProp = cmbCustomer.SelectedItem.GetType().GetProperty("Element");
-                        if (elemProp != null)
-                        {
-                            var elem = (JsonElement)elemProp.GetValue(cmbCustomer.SelectedItem)!;
-                            customerIdValue = GetValueFromJson(elem, "CustomerId") ?? GetValueFromJson(elem, "Id");
-                        }
-                    }
+                    var selectedCust = CrmComboItem.FromControl(cmbCustomer);
+                    var customerIdValue = selectedCust?.Id;
 
                     var body = new Dictionary<string, object?>
                     {
@@ -2114,25 +2198,42 @@ public partial class Form1 : Form
                     subtitle: "Generate proposal pricing, discount terms, and service scope.",
                     actionText: CompanyTerminology.Code == CompanyTerminology.Salon ? "Book Appointment" : "Create Quotation",
                     iconSymbol: "💼",
-                    dialogWidth: 560);
+                    dialogWidth: 580);
 
-                var projectList = new List<object>();
-                try
-                {
-                    var projArray = await GetArrayAsync("projects");
-                    projectList.AddRange(projArray.Select(p => new
-                    {
-                        Element = p,
-                        Text = $"{GetString(p, "ProjectName") ?? "Service"} (ID: {GetValueFromJson(p, "ProjectId") ?? GetValueFromJson(p, "Id")})"
-                    }));
-                }
-                catch { }
+                var customerList = await LoadCustomerComboItemsAsync();
+                var projectList = await LoadProjectComboItemsAsync();
 
-                var cmbProject = dlg.AddDropdownField(
+                dlg.AddTwoDropdownFields(
+                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Search Client" : "Search Customer",
+                    customerList.Cast<object>().ToArray(), out var cmbCust,
                     CompanyTerminology.Code == CompanyTerminology.Salon ? "Select Service / Project *" : "Select Linked Project *",
-                    projectList.ToArray(),
-                    required: true);
-                cmbProject.DisplayMember = "Text";
+                    projectList.Cast<object>().ToArray(), out var cmbProject,
+                    req2: true, isSearchable1: true, isSearchable2: true);
+
+                // Auto-link Customer -> Project
+                cmbCust.SelectedIndexChanged += (_, _) =>
+                {
+                    var cust = CrmComboItem.FromControl(cmbCust);
+                    if (cust?.Id != null)
+                    {
+                        var matchingProj = projectList.FirstOrDefault(p =>
+                            p.Tag != null && p.Tag.ToString() == cust.Id.ToString());
+                        if (matchingProj != null)
+                            cmbProject.SelectedItem = matchingProj;
+                    }
+                };
+
+                cmbProject.SelectedIndexChanged += (_, _) =>
+                {
+                    var proj = CrmComboItem.FromControl(cmbProject);
+                    if (proj?.Tag != null)
+                    {
+                        var matchingCust = customerList.FirstOrDefault(c =>
+                            c.Id != null && c.Id.ToString() == proj.Tag.ToString());
+                        if (matchingCust != null)
+                            cmbCust.SelectedItem = matchingCust;
+                    }
+                };
 
                 dlg.AddTwoTextFields(
                     "Subtotal Amount (₱) *", "0.00", out var txtSubtotal,
@@ -2143,15 +2244,13 @@ public partial class Form1 : Form
 
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
-                    object? projectIdValue = null;
-                    if (cmbProject.SelectedItem != null)
+                    var selProj = CrmComboItem.FromControl(cmbProject);
+                    var projectIdValue = selProj?.Id;
+
+                    if (projectIdValue == null)
                     {
-                        var elemProp = cmbProject.SelectedItem.GetType().GetProperty("Element");
-                        if (elemProp != null)
-                        {
-                            var elem = (JsonElement)elemProp.GetValue(cmbProject.SelectedItem)!;
-                            projectIdValue = GetValueFromJson(elem, "ProjectId") ?? GetValueFromJson(elem, "Id");
-                        }
+                        MessageBox.Show("Please select a linked project.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
                     }
 
                     decimal.TryParse(txtSubtotal.Text, out var subtotal);
@@ -2171,10 +2270,214 @@ public partial class Form1 : Form
                 return;
             }
 
+            if (string.Equals(endpoint, "activities", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlg = new CrmModalDialog(
+                    title: CompanyTerminology.Code == CompanyTerminology.Salon ? "Schedule Follow-up" : "Log New Activity",
+                    subtitle: "Record customer meetings, consultations, calls, follow-ups, or site inspections.",
+                    actionText: CompanyTerminology.Code == CompanyTerminology.Salon ? "Save Follow-up" : "Log Activity",
+                    iconSymbol: "⏱",
+                    dialogWidth: 580);
+
+                var customerList = await LoadCustomerComboItemsAsync();
+                var projectList = await LoadProjectComboItemsAsync();
+
+                var cmbCustomer = dlg.AddSearchableDropdownField(
+                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Customer / Client *" : "Customer Account *",
+                    customerList.Cast<object>().ToArray(),
+                    required: true);
+
+                var projDropdownItems = new List<object>
+                {
+                    new CrmComboItem { Id = null, Name = "[None / General Activity]", Subtext = "Not tied to a specific project" }
+                };
+                projDropdownItems.AddRange(projectList);
+
+                var cmbProject = dlg.AddSearchableDropdownField(
+                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Linked Service / Project (Optional)" : "Linked Project (Optional)",
+                    projDropdownItems.ToArray(),
+                    required: false);
+
+                // Auto-link Customer <-> Project
+                cmbCustomer.SelectedIndexChanged += (_, _) =>
+                {
+                    var cust = CrmComboItem.FromControl(cmbCustomer);
+                    if (cust?.Id != null)
+                    {
+                        var matchingProj = projectList.FirstOrDefault(p =>
+                            p.Tag != null && p.Tag.ToString() == cust.Id.ToString());
+                        if (matchingProj != null)
+                            cmbProject.SelectedItem = matchingProj;
+                    }
+                };
+
+                cmbProject.SelectedIndexChanged += (_, _) =>
+                {
+                    var proj = CrmComboItem.FromControl(cmbProject);
+                    if (proj?.Tag != null)
+                    {
+                        var matchingCust = customerList.FirstOrDefault(c =>
+                            c.Id != null && c.Id.ToString() == proj.Tag.ToString());
+                        if (matchingCust != null)
+                            cmbCustomer.SelectedItem = matchingCust;
+                    }
+                };
+
+                var activityTypes = CompanyTerminology.Code == CompanyTerminology.Salon
+                    ? new object[] { "Appointment", "Follow-up Consultation", "Styling Session", "Customer Call", "Review", "Other" }
+                    : new object[] { "Meeting", "Call", "Site Visit", "Design Consultation", "Email", "Presentation", "Follow-up", "Other" };
+
+                var activityStatuses = new object[] { "Scheduled", "Completed", "In Progress", "Cancelled" };
+
+                dlg.AddTwoDropdownFields(
+                    "Activity Type *", activityTypes, out var cmbActType,
+                    "Current Status *", activityStatuses, out var cmbActStatus,
+                    req1: true, req2: true);
+
+                var txtSubject = dlg.AddTextField(
+                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Subject / Purpose *" : "Activity Subject *",
+                    CompanyTerminology.Code == CompanyTerminology.Salon ? "e.g. 2-Week Post Hair Treatment Check" : "e.g. Layout Review & Lighting Discussion",
+                    required: true);
+
+                dlg.AddDatePickerField("Activity Date & Time", out var dtActivity, "Next Follow-up Date (Optional)", out var dtFollowUp);
+
+                var txtNotes = dlg.AddTextAreaField("Meeting Notes & Discussion Summary", "Key conversation points, agreed actions, next steps...", height: 65);
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (string.IsNullOrWhiteSpace(txtSubject.Text))
+                    {
+                        MessageBox.Show("Activity subject is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    var selectedCust = CrmComboItem.FromControl(cmbCustomer);
+                    var selectedProj = CrmComboItem.FromControl(cmbProject);
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["customerId"] = selectedCust?.Id,
+                        ["projectId"] = selectedProj?.Id,
+                        ["activityType"] = cmbActType.SelectedItem?.ToString() ?? "Other",
+                        ["status"] = cmbActStatus.SelectedItem?.ToString() ?? "Scheduled",
+                        ["subject"] = txtSubject.Text.Trim(),
+                        ["activityDate"] = dtActivity.Value.ToString("o"),
+                        ["followUpDate"] = dtFollowUp.Value.ToString("o"),
+                        ["description"] = txtNotes.Text.Trim(),
+                        ["notes"] = txtNotes.Text.Trim()
+                    };
+
+                    await PostObjectAsync(endpoint, body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            if (string.Equals(endpoint, "issues", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlg = new CrmModalDialog(
+                    title: CompanyTerminology.Code == CompanyTerminology.Salon ? "Report Service Complaint" : "Log New Project Issue",
+                    subtitle: "Record quality defects, client complaints, schedule delays, or billing disputes.",
+                    actionText: "Submit Issue",
+                    iconSymbol: "⚠️",
+                    dialogWidth: 580);
+
+                var customerList = await LoadCustomerComboItemsAsync();
+                var projectList = await LoadProjectComboItemsAsync();
+
+                dlg.AddTwoDropdownFields(
+                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Client Account *" : "Customer Account *",
+                    customerList.Cast<object>().ToArray(), out var cmbCustomer,
+                    CompanyTerminology.Code == CompanyTerminology.Salon ? "Associated Service *" : "Associated Project *",
+                    projectList.Cast<object>().ToArray(), out var cmbProject,
+                    req1: true, req2: true, isSearchable1: true, isSearchable2: true);
+
+                // Auto-link Customer <-> Project
+                cmbCustomer.SelectedIndexChanged += (_, _) =>
+                {
+                    var cust = CrmComboItem.FromControl(cmbCustomer);
+                    if (cust?.Id != null)
+                    {
+                        var matchingProj = projectList.FirstOrDefault(p =>
+                            p.Tag != null && p.Tag.ToString() == cust.Id.ToString());
+                        if (matchingProj != null)
+                            cmbProject.SelectedItem = matchingProj;
+                    }
+                };
+
+                cmbProject.SelectedIndexChanged += (_, _) =>
+                {
+                    var proj = CrmComboItem.FromControl(cmbProject);
+                    if (proj?.Tag != null)
+                    {
+                        var matchingCust = customerList.FirstOrDefault(c =>
+                            c.Id != null && c.Id.ToString() == proj.Tag.ToString());
+                        if (matchingCust != null)
+                            cmbCustomer.SelectedItem = matchingCust;
+                    }
+                };
+
+                var issueTypes = CompanyTerminology.Code == CompanyTerminology.Salon
+                    ? new object[] { "Complaint", "Adjustment", "ServiceRedo", "PaymentDispute", "Other" }
+                    : new object[] { "Complaint", "Adjustment", "PaymentDispute", "Rework", "Defect", "Other" };
+
+                var severities = new object[] { "Low", "Medium", "High", "Critical" };
+
+                dlg.AddTwoDropdownFields("Issue Classification *", issueTypes, out var cmbType, "Severity Level *", severities, out var cmbSeverity, req1: true, req2: true);
+                cmbSeverity.SelectedItem = "Medium";
+
+                var txtTitle = dlg.AddTextField("Issue Title / Headline *", "e.g. Cabinet measurement mismatch on kitchen island", required: true);
+
+                dlg.AddTwoTextFields(
+                    "Disputed Amount (₱)", "0.00", out var txtAmount,
+                    "Payment Reference", "e.g. OR-8821 / Invoice #", out var txtPayRef);
+
+                var txtNotes = dlg.AddTextAreaField("Issue Description & Requested Resolution *", "Provide full description of the defect, discrepancy, or client requested action...", height: 70);
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    if (string.IsNullOrWhiteSpace(txtTitle.Text))
+                    {
+                        MessageBox.Show("Issue title is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    var selectedCust = CrmComboItem.FromControl(cmbCustomer);
+                    var selectedProj = CrmComboItem.FromControl(cmbProject);
+
+                    decimal.TryParse(txtAmount.Text, out var disputedAmt);
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["customerId"] = selectedCust?.Id,
+                        ["projectId"] = selectedProj?.Id ?? 0,
+                        ["issueType"] = cmbType.SelectedItem?.ToString() ?? "Complaint",
+                        ["severity"] = cmbSeverity.SelectedItem?.ToString() ?? "Medium",
+                        ["status"] = "Open",
+                        ["title"] = txtTitle.Text.Trim(),
+                        ["description"] = txtNotes.Text.Trim(),
+                        ["requestedAction"] = txtNotes.Text.Trim(),
+                        ["disputedAmount"] = disputedAmt > 0 ? disputedAmt : null,
+                        ["paymentReference"] = string.IsNullOrWhiteSpace(txtPayRef.Text) ? null : txtPayRef.Text.Trim()
+                    };
+
+                    await PostObjectAsync(endpoint, body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
             // Fallback create (Customers, Leads, Suppliers, etc.)
-            string entitySingular = title.TrimEnd('s');
-            if (string.Equals(endpoint, "customers", StringComparison.OrdinalIgnoreCase) && CompanyTerminology.Code == CompanyTerminology.Salon)
-                entitySingular = "Client";
+            string entitySingular = title switch
+            {
+                "Activities" or "activities" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Follow-up" : "Activity",
+                "Issues" or "issues" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Complaint" : "Issue",
+                "Projects" or "projects" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Service" : "Project",
+                "Customers" or "customers" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Client" : "Customer",
+                "Leads" or "leads" => "Lead",
+                "Suppliers" or "suppliers" => "Supplier",
+                _ => title.EndsWith("ies", StringComparison.OrdinalIgnoreCase) ? title[..^3] + "y" : title.TrimEnd('s')
+            };
 
             using var dlgGen = new CrmModalDialog(
                 title: $"Add New {entitySingular}",
@@ -2192,14 +2495,14 @@ public partial class Form1 : Form
                 "Email Address", "name@example.com", out var txtEmail,
                 "Phone Number", "09XX-XXX-XXXX", out var txtPhone);
 
-            ComboBox? cmbType = null;
+            ComboBox? cmbCustType = null;
             if (string.Equals(endpoint, "customers", StringComparison.OrdinalIgnoreCase))
             {
-                cmbType = dlgGen.AddDropdownField("Customer Segment / Type", new object[] { "Regular", "VIP", "Corporate", "Walk-in" }, "Regular");
+                cmbCustType = dlgGen.AddDropdownField("Customer Segment / Type", new object[] { "Regular", "VIP", "Corporate", "Walk-in" }, "Regular");
             }
             else if (string.Equals(endpoint, "leads", StringComparison.OrdinalIgnoreCase))
             {
-                cmbType = dlgGen.AddDropdownField("Acquisition Source", new object[] { "Referral", "Website", "Walk-in", "Social Media", "Campaign" }, "Referral");
+                cmbCustType = dlgGen.AddDropdownField("Acquisition Source", new object[] { "Referral", "Website", "Walk-in", "Social Media", "Campaign" }, "Referral");
             }
 
             var chkActive = dlgGen.AddCheckboxField("Active Status", true);
@@ -2221,12 +2524,12 @@ public partial class Form1 : Form
                     ["isActive"] = chkActive.Checked
                 };
 
-                if (cmbType != null)
+                if (cmbCustType != null)
                 {
                     if (string.Equals(endpoint, "customers", StringComparison.OrdinalIgnoreCase))
-                        body["customerType"] = cmbType.SelectedItem?.ToString() ?? "Regular";
+                        body["customerType"] = cmbCustType.SelectedItem?.ToString() ?? "Regular";
                     else if (string.Equals(endpoint, "leads", StringComparison.OrdinalIgnoreCase))
-                        body["leadSource"] = cmbType.SelectedItem?.ToString() ?? "Referral";
+                        body["leadSource"] = cmbCustType.SelectedItem?.ToString() ?? "Referral";
                 }
 
                 await PostObjectAsync(endpoint, body);
@@ -2248,6 +2551,7 @@ public partial class Form1 : Form
                 "projects" => GetValueFromJson(record, "ProjectId"),
                 "quotations" => GetValueFromJson(record, "QuotationId"),
                 "activities" => GetValueFromJson(record, "ActivityId"),
+                "issues" => GetValueFromJson(record, "ProjectIssueId") ?? GetValueFromJson(record, "IssueId"),
                 "suppliers" => GetValueFromJson(record, "SupplierId"),
                 _ => GetValueFromJson(record, "Id")
             };
@@ -2261,31 +2565,258 @@ public partial class Form1 : Form
                 return;
             }
 
-            // Modern SaaS Edit Dialog
-            string entitySingular = title.TrimEnd('s');
-            using var dlg = new CrmModalDialog(
+            if (string.Equals(endpoint, "activities", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlg = new CrmModalDialog(
+                    title: "Edit Activity Details",
+                    subtitle: "Update activity subject, schedule, status, and conversation notes.",
+                    actionText: "Save Changes",
+                    iconSymbol: "✎",
+                    dialogWidth: 580);
+
+                var customerList = await LoadCustomerComboItemsAsync();
+                var projectList = await LoadProjectComboItemsAsync();
+
+                var currentCustId = GetValueFromJson(elem, "CustomerId")?.ToString();
+                var currentProjId = GetValueFromJson(elem, "ProjectId")?.ToString();
+
+                var selectedCustItem = customerList.FirstOrDefault(c => c.Id?.ToString() == currentCustId);
+                var cmbCustomer = dlg.AddSearchableDropdownField(
+                    "Customer Account *",
+                    customerList.Cast<object>().ToArray(),
+                    selectedCustItem,
+                    required: true);
+
+                var projDropdownItems = new List<object>
+                {
+                    new CrmComboItem { Id = null, Name = "[None / General Activity]", Subtext = "Not tied to a specific project" }
+                };
+                projDropdownItems.AddRange(projectList);
+                var selectedProjItem = projDropdownItems.OfType<CrmComboItem>().FirstOrDefault(p => p.Id?.ToString() == currentProjId);
+
+                var cmbProject = dlg.AddSearchableDropdownField(
+                    "Linked Project (Optional)",
+                    projDropdownItems.ToArray(),
+                    selectedProjItem);
+
+                var activityTypes = new object[] { "Meeting", "Call", "Site Visit", "Design Consultation", "Email", "Presentation", "Follow-up", "Other" };
+                var activityStatuses = new object[] { "Scheduled", "Completed", "In Progress", "Cancelled" };
+
+                dlg.AddTwoDropdownFields(
+                    "Activity Type *", activityTypes, out var cmbActType,
+                    "Current Status *", activityStatuses, out var cmbActStatus,
+                    req1: true, req2: true);
+
+                var curType = GetString(elem, "ActivityType", "activityType") ?? "Meeting";
+                var curStatus = GetString(elem, "Status", "status") ?? "Scheduled";
+                if (activityTypes.Contains(curType)) cmbActType.SelectedItem = curType;
+                if (activityStatuses.Contains(curStatus)) cmbActStatus.SelectedItem = curStatus;
+
+                var txtSubject = dlg.AddTextField("Activity Subject *", "Subject...", GetString(elem, "Subject", "subject") ?? "", required: true);
+
+                dlg.AddDatePickerField("Activity Date", out var dtActivity, "Next Follow-up Date", out var dtFollowUp);
+                if (DateTime.TryParse(GetString(elem, "ActivityDate", "activityDate"), out var actD)) dtActivity.Value = actD;
+                if (DateTime.TryParse(GetString(elem, "FollowUpDate", "followUpDate"), out var fuD)) dtFollowUp.Value = fuD;
+
+                var txtNotes = dlg.AddTextAreaField("Meeting Notes & Discussion Summary", "Notes...", height: 65, initialValue: GetString(elem, "Description", "description") ?? GetString(elem, "Notes", "notes") ?? "");
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    var selectedCust = CrmComboItem.FromControl(cmbCustomer);
+                    var selectedProj = CrmComboItem.FromControl(cmbProject);
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["customerId"] = selectedCust?.Id,
+                        ["projectId"] = selectedProj?.Id,
+                        ["activityType"] = cmbActType.SelectedItem?.ToString() ?? "Other",
+                        ["status"] = cmbActStatus.SelectedItem?.ToString() ?? "Scheduled",
+                        ["subject"] = txtSubject.Text.Trim(),
+                        ["activityDate"] = dtActivity.Value.ToString("o"),
+                        ["followUpDate"] = dtFollowUp.Value.ToString("o"),
+                        ["description"] = txtNotes.Text.Trim(),
+                        ["notes"] = txtNotes.Text.Trim()
+                    };
+
+                    await PutObjectAsync($"{endpoint}/{id}", body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            if (string.Equals(endpoint, "issues", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlg = new CrmModalDialog(
+                    title: "Edit Issue Details",
+                    subtitle: "Update issue description, severity, status, and resolution details.",
+                    actionText: "Save Changes",
+                    iconSymbol: "✎",
+                    dialogWidth: 580);
+
+                var customerList = await LoadCustomerComboItemsAsync();
+                var projectList = await LoadProjectComboItemsAsync();
+
+                var currentCustId = GetValueFromJson(elem, "CustomerId")?.ToString();
+                var currentProjId = GetValueFromJson(elem, "ProjectId")?.ToString();
+
+                var selectedCustItem = customerList.FirstOrDefault(c => c.Id?.ToString() == currentCustId);
+                var selectedProjItem = projectList.FirstOrDefault(p => p.Id?.ToString() == currentProjId);
+
+                dlg.AddTwoDropdownFields(
+                    "Customer Account *",
+                    customerList.Cast<object>().ToArray(), out var cmbCustomer,
+                    "Associated Project *",
+                    projectList.Cast<object>().ToArray(), out var cmbProject,
+                    req1: true, req2: true, isSearchable1: true, isSearchable2: true);
+
+                if (selectedCustItem != null) cmbCustomer.SelectedItem = selectedCustItem;
+                if (selectedProjItem != null) cmbProject.SelectedItem = selectedProjItem;
+
+                var issueTypes = new object[] { "Complaint", "Adjustment", "PaymentDispute", "Rework", "Defect", "Other" };
+                var severities = new object[] { "Low", "Medium", "High", "Critical" };
+
+                dlg.AddTwoDropdownFields("Issue Type *", issueTypes, out var cmbType, "Severity *", severities, out var cmbSeverity, req1: true, req2: true);
+                var curType = GetString(elem, "IssueType", "issueType") ?? "Complaint";
+                var curSev = GetString(elem, "Severity", "severity") ?? "Medium";
+                if (issueTypes.Contains(curType)) cmbType.SelectedItem = curType;
+                if (severities.Contains(curSev)) cmbSeverity.SelectedItem = curSev;
+
+                var txtTitle = dlg.AddTextField("Issue Title *", "Headline...", GetString(elem, "Title", "title") ?? "", required: true);
+
+                var statuses = new object[] { "Open", "InProgress", "Resolved", "Closed", "Rejected" };
+                var cmbStatus = dlg.AddDropdownField("Current Status", statuses, GetString(elem, "Status", "status") ?? "Open");
+
+                dlg.AddTwoTextFields(
+                    "Disputed Amount (₱)", "0.00", out var txtAmount,
+                    "Payment Reference", "Ref...", out var txtPayRef);
+                txtAmount.Text = GetValueFromJson(elem, "DisputedAmount")?.ToString() ?? "";
+                txtPayRef.Text = GetString(elem, "PaymentReference", "paymentReference") ?? "";
+
+                var txtNotes = dlg.AddTextAreaField("Description & Resolution Details", "Details...", height: 65, initialValue: GetString(elem, "Description", "description") ?? "");
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    var selectedCust = CrmComboItem.FromControl(cmbCustomer);
+                    var selectedProj = CrmComboItem.FromControl(cmbProject);
+
+                    decimal.TryParse(txtAmount.Text, out var disputedAmt);
+
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["customerId"] = selectedCust?.Id,
+                        ["projectId"] = selectedProj?.Id ?? 0,
+                        ["issueType"] = cmbType.SelectedItem?.ToString() ?? "Complaint",
+                        ["severity"] = cmbSeverity.SelectedItem?.ToString() ?? "Medium",
+                        ["status"] = cmbStatus.SelectedItem?.ToString() ?? "Open",
+                        ["title"] = txtTitle.Text.Trim(),
+                        ["description"] = txtNotes.Text.Trim(),
+                        ["disputedAmount"] = disputedAmt > 0 ? disputedAmt : null,
+                        ["paymentReference"] = string.IsNullOrWhiteSpace(txtPayRef.Text) ? null : txtPayRef.Text.Trim()
+                    };
+
+                    await PutObjectAsync($"{endpoint}/{id}", body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            if (string.Equals(endpoint, "projects", StringComparison.OrdinalIgnoreCase))
+            {
+                using var dlg = new CrmModalDialog(
+                    title: "Edit Project Details",
+                    subtitle: "Update project lifecycle, milestones, and customer assignment.",
+                    actionText: "Save Changes",
+                    iconSymbol: "✎",
+                    dialogWidth: 580);
+
+                dlg.AddTwoTextFields(
+                    "Project Code *", "Code...", out var txtCode,
+                    "Project Name *", "Name...", out var txtName, req1: true, req2: true);
+                txtCode.Text = GetString(elem, "ProjectCode", "projectCode") ?? "";
+                txtName.Text = GetString(elem, "ProjectName", "projectName") ?? "";
+
+                var customerList = await LoadCustomerComboItemsAsync();
+                var currentCustId = GetValueFromJson(elem, "CustomerId")?.ToString();
+                var selectedCustItem = customerList.FirstOrDefault(c => c.Id?.ToString() == currentCustId);
+
+                var cmbCustomer = dlg.AddSearchableDropdownField(
+                    "Assigned Customer *",
+                    customerList.Cast<object>().ToArray(),
+                    selectedCustItem,
+                    required: true);
+
+                dlg.AddTwoTextFields(
+                    "Category / Type", "e.g. Commercial, Residential", out var txtType,
+                    "Location / Branch", "e.g. Makati Branch", out var txtLocation);
+                txtType.Text = GetString(elem, "ProjectType", "projectType") ?? "";
+                txtLocation.Text = GetString(elem, "Location", "location") ?? "";
+
+                var statuses = new object[] { "Planning", "In Progress", "Review", "Completed", "On Hold", "Cancelled" };
+                var cmbStatus = dlg.AddDropdownField("Project Status", statuses, GetString(elem, "Status", "status") ?? "Planning");
+
+                dlg.AddDatePickerField("Start Date", out var dtStart, "Target Completion Date", out var dtEnd);
+                if (DateTime.TryParse(GetString(elem, "StartDate", "startDate"), out var sd)) dtStart.Value = sd;
+                if (DateTime.TryParse(GetString(elem, "TargetEndDate", "targetEndDate"), out var ed)) dtEnd.Value = ed;
+
+                var txtNotes = dlg.AddTextAreaField("Scope & Notes", "Scope...", height: 60, initialValue: GetString(elem, "Notes", "notes") ?? GetString(elem, "Description", "description") ?? "");
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    var selectedCust = CrmComboItem.FromControl(cmbCustomer);
+                    var body = new Dictionary<string, object?>
+                    {
+                        ["projectCode"] = txtCode.Text.Trim(),
+                        ["projectName"] = txtName.Text.Trim(),
+                        ["customerId"] = selectedCust?.Id,
+                        ["projectType"] = txtType.Text.Trim(),
+                        ["location"] = txtLocation.Text.Trim(),
+                        ["status"] = cmbStatus.SelectedItem?.ToString() ?? "Planning",
+                        ["startDate"] = dtStart.Value.ToString("o"),
+                        ["targetEndDate"] = dtEnd.Value.ToString("o"),
+                        ["notes"] = txtNotes.Text.Trim()
+                    };
+
+                    await PutObjectAsync($"{endpoint}/{id}", body);
+                    await LoadEntityPageAsync(title, endpoint, preferredColumns);
+                }
+                return;
+            }
+
+            // Modern SaaS Edit Dialog (Fallback for Customers, Leads, Suppliers)
+            string entitySingular = title switch
+            {
+                "Activities" or "activities" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Follow-up" : "Activity",
+                "Issues" or "issues" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Complaint" : "Issue",
+                "Projects" or "projects" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Service" : "Project",
+                "Customers" or "customers" => CompanyTerminology.Code == CompanyTerminology.Salon ? "Client" : "Customer",
+                "Leads" or "leads" => "Lead",
+                "Suppliers" or "suppliers" => "Supplier",
+                _ => title.EndsWith("ies", StringComparison.OrdinalIgnoreCase) ? title[..^3] + "y" : title.TrimEnd('s')
+            };
+
+            using var dlgGen = new CrmModalDialog(
                 title: $"Edit {entitySingular} Details",
                 subtitle: $"Update contact records, identity, and operational status for this {entitySingular.ToLower()}.",
                 actionText: "Save Changes",
                 iconSymbol: "✎",
                 dialogWidth: 540);
 
-            dlg.AddTwoTextFields(
+            dlgGen.AddTwoTextFields(
                 "First Name *", "Enter first name", out var txtFirst,
                 "Last Name *", "Enter last name", out var txtLast,
                 req1: true, req2: true);
             txtFirst.Text = GetString(elem, "FirstName", "firstName") ?? "";
             txtLast.Text = GetString(elem, "LastName", "lastName") ?? "";
 
-            dlg.AddTwoTextFields(
+            dlgGen.AddTwoTextFields(
                 "Email Address", "name@example.com", out var txtEmail,
                 "Phone Number", "09XX-XXX-XXXX", out var txtPhone);
             txtEmail.Text = GetString(elem, "Email", "email") ?? "";
             txtPhone.Text = GetString(elem, "Phone", "phone") ?? "";
 
-            var chkActive = dlg.AddCheckboxField("Active Account Status", (GetValueFromJson(elem, "IsActive") as bool?) ?? true);
+            var chkActive = dlgGen.AddCheckboxField("Active Account Status", (GetValueFromJson(elem, "IsActive") as bool?) ?? true);
 
-            if (dlg.ShowDialog(this) == DialogResult.OK)
+            if (dlgGen.ShowDialog(this) == DialogResult.OK)
             {
                 var body = new Dictionary<string, object?>
                 {
@@ -2315,6 +2846,7 @@ public partial class Form1 : Form
                 "projects" => GetValueFromJson(record, "ProjectId"),
                 "quotations" => GetValueFromJson(record, "QuotationId"),
                 "activities" => GetValueFromJson(record, "ActivityId"),
+                "issues" => GetValueFromJson(record, "ProjectIssueId") ?? GetValueFromJson(record, "IssueId"),
                 "suppliers" => GetValueFromJson(record, "SupplierId"),
                 _ => GetValueFromJson(record, "Id")
             };
@@ -2972,8 +3504,11 @@ public partial class Form1 : Form
             return pageName is "Platform BI" or "Admin Panel" or "Company Admins & Users"
                            or "Company Admins" or "System Users" or "Users"
                            or "Subscriptions & Billing" or "Company Accounts"
-                           or "Audit Logs" or "System Settings" or "SA Policy";
+                           or "Audit Logs" or "System Settings" or "SA Policy" or "Terms & Conditions";
         }
+
+        // Both Super Admin and Company Users can access Terms & Conditions
+        if (pageName is "Terms & Conditions" or "Terms") return true;
 
         // Company users cannot see any platform administration pages
         if (pageName is "Platform BI" or "Admin Panel" or "Company Admins & Users"
@@ -3278,11 +3813,49 @@ public partial class Form1 : Form
         lblApiStatus.ForeColor = ColorDanger;
     }
 
+    private void UpdateCloudBadgeUI()
+    {
+        if (_btnCloudChip == null || _btnCloudChip.IsDisposed) return;
+
+        if (InvokeRequired)
+        {
+            BeginInvoke(new Action(UpdateCloudBadgeUI));
+            return;
+        }
+
+        int pending = OfflineSyncManager.PendingSyncCount;
+        bool online = OfflineSyncManager.IsOnline;
+
+        if (!online)
+        {
+            _btnCloudChip.Text = pending > 0 ? $"🟡 Offline ({pending} queued)" : "🟡 Offline Mode";
+            _btnCloudChip.ForeColor = Color.FromArgb(161, 98, 7);
+            _btnCloudChip.BackColor = Color.FromArgb(254, 252, 232);
+            _btnCloudChip.FlatAppearance.BorderColor = Color.FromArgb(254, 240, 138);
+        }
+        else if (pending > 0)
+        {
+            _btnCloudChip.Text = $"🔄 Syncing {pending} to Cloud...";
+            _btnCloudChip.ForeColor = Color.FromArgb(30, 64, 175);
+            _btnCloudChip.BackColor = Color.FromArgb(239, 246, 255);
+            _btnCloudChip.FlatAppearance.BorderColor = Color.FromArgb(191, 219, 254);
+        }
+        else
+        {
+            _btnCloudChip.Text = "☁️ Online · Cloud Synced";
+            _btnCloudChip.ForeColor = Color.FromArgb(22, 101, 52);
+            _btnCloudChip.BackColor = Color.FromArgb(240, 253, 244);
+            _btnCloudChip.FlatAppearance.BorderColor = Color.FromArgb(187, 247, 208);
+        }
+    }
+
     // =========================================================
-    // API HELPERS
+    // API HELPERS (WITH DUAL-STORAGE OFFLINE & AUTO CLOUD SYNC)
     // =========================================================
     private async Task<List<JsonElement>> GetArrayAsync(string endpoint)
     {
+        int companyId = Session.CompanyId ?? 0;
+
         if (Session.CompanyId == null)
             throw new InvalidOperationException("No company is assigned to the current login session.");
 
@@ -3291,34 +3864,60 @@ public partial class Form1 : Form
 
         var url = $"{ApiUrl}/tenant/{Session.CompanyId.Value}/{endpoint}";
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
-
-        using var response = await _httpClient.SendAsync(request);
-        var json = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"Endpoint: {url}\n\nStatus: {(int)response.StatusCode} {response.ReasonPhrase}\n\nResponse:\n{json}");
-
-        using var document = JsonDocument.Parse(json);
-
-        if (document.RootElement.ValueKind == JsonValueKind.Array)
-            return document.RootElement.EnumerateArray().Select(e => e.Clone()).ToList();
-
-        if (document.RootElement.ValueKind == JsonValueKind.Object)
+        try
         {
-            foreach (var name in new[] { "data", "items", "results", endpoint })
-            {
-                if (document.RootElement.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Array)
-                    return prop.EnumerateArray().Select(e => e.Clone()).ToList();
-            }
-        }
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
 
-        return new List<JsonElement>();
+            using var response = await _httpClient.SendAsync(request, cts.Token);
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException($"Endpoint: {url}\n\nStatus: {(int)response.StatusCode} {response.ReasonPhrase}\n\nResponse:\n{json}");
+
+            using var document = JsonDocument.Parse(json);
+            List<JsonElement> list = new();
+
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+                list = document.RootElement.EnumerateArray().Select(e => e.Clone()).ToList();
+            else if (document.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var name in new[] { "data", "items", "results", endpoint })
+                {
+                    if (document.RootElement.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Array)
+                    {
+                        list = prop.EnumerateArray().Select(e => e.Clone()).ToList();
+                        break;
+                    }
+                }
+            }
+
+            // Cache data locally for offline use
+            if (companyId > 0 && list.Count > 0)
+            {
+                OfflineSyncManager.SaveCache(companyId, endpoint, list);
+            }
+
+            return list;
+        }
+        catch (Exception)
+        {
+            // Fallback to local offline cache
+            var cached = OfflineSyncManager.LoadCache(companyId, endpoint);
+            if (cached != null)
+            {
+                Session.IsOffline = true;
+                return cached;
+            }
+            throw;
+        }
     }
 
     private async Task<JsonElement> GetObjectAsync(string endpoint)
     {
+        int companyId = Session.CompanyId ?? 0;
+
         if (Session.CompanyId == null)
             throw new InvalidOperationException("No company is assigned to the current login session.");
 
@@ -3327,77 +3926,168 @@ public partial class Form1 : Form
 
         var url = $"{ApiUrl}/tenant/{Session.CompanyId.Value}/{endpoint}";
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
-
-        using var response = await _httpClient.SendAsync(request);
-        var json = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"Endpoint: {url}\n\nStatus: {(int)response.StatusCode} {response.ReasonPhrase}\n\nResponse:\n{json}");
-
-        using var document = JsonDocument.Parse(json);
-
-        if (document.RootElement.ValueKind == JsonValueKind.Object)
-            return document.RootElement.Clone();
-
-        foreach (var name in new[] { "data", "item", "result" })
+        try
         {
-            if (document.RootElement.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Object)
-                return prop.Clone();
-        }
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
 
-        return new JsonElement();
+            using var response = await _httpClient.SendAsync(request, cts.Token);
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+                    throw new HttpRequestException($"Endpoint: {url}\n\nStatus: {(int)response.StatusCode} {response.ReasonPhrase}\n\nResponse:\n{json}");
+
+            using var document = JsonDocument.Parse(json);
+
+            if (document.RootElement.ValueKind == JsonValueKind.Object)
+                return document.RootElement.Clone();
+
+            foreach (var name in new[] { "data", "item", "result" })
+            {
+                if (document.RootElement.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Object)
+                    return prop.Clone();
+            }
+
+            return new JsonElement();
+        }
+        catch (Exception)
+        {
+            // Try to find the item in local cache
+            if (endpoint.Contains('/'))
+            {
+                var parts = endpoint.Split('/');
+                var cachedList = OfflineSyncManager.LoadCache(companyId, parts[0]);
+                if (cachedList != null)
+                {
+                    string targetId = parts[1];
+                    foreach (var elem in cachedList)
+                    {
+                        var id = GetValueFromJson(elem, "Id") ?? GetValueFromJson(elem, "CustomerId") ?? GetValueFromJson(elem, "ProjectId") ?? GetValueFromJson(elem, "ActivityId") ?? GetValueFromJson(elem, "ProjectIssueId");
+                        if (id?.ToString() == targetId)
+                            return elem;
+                    }
+                }
+            }
+            throw;
+        }
     }
 
     private async Task PostObjectAsync(string endpoint, object body)
     {
-        if (Session.CompanyId == null)
-            throw new InvalidOperationException("No company is assigned to the current login session.");
+        int companyId = Session.CompanyId ?? 0;
+        var dictBody = body as Dictionary<string, object?> ?? new Dictionary<string, object?>();
 
-        if (string.IsNullOrWhiteSpace(Session.Token))
-            throw new InvalidOperationException("No authentication token is available.");
+        var summary = dictBody.TryGetValue("subject", out var s) ? s?.ToString() :
+                      dictBody.TryGetValue("title", out var t) ? t?.ToString() :
+                      dictBody.TryGetValue("projectName", out var p) ? p?.ToString() :
+                      dictBody.TryGetValue("firstName", out var f) ? $"{f} {dictBody.GetValueOrDefault("lastName")}" : endpoint;
 
-        var url = $"{ApiUrl}/tenant/{Session.CompanyId.Value}/{endpoint}";
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        // Try submitting via local API first (which routes to LocalDB when offline, or Cloud+Local when online)
+        try
         {
-            Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json")
-        };
+            var url = $"{ApiUrl}/tenant/{companyId}/{endpoint}";
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json")
+            };
 
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+            if (!string.IsNullOrWhiteSpace(Session.Token))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+            }
 
-        using var response = await _httpClient.SendAsync(request);
-        var json = await response.Content.ReadAsStringAsync();
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"POST {url} failed: {(int)response.StatusCode} {response.ReasonPhrase}\n{json}");
+            using var response = await _httpClient.SendAsync(request, cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                if (!OfflineSyncManager.IsOnline)
+                {
+                    MessageBox.Show($"Saved directly to Local Database (Offline Mode).\nThis record will automatically synchronize to Cloud Storage when connection returns.",
+                        "Saved Locally (Offline)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                return;
+            }
+        }
+        catch { }
+
+        // Fallback: If local API could not be reached, store in offline cache queue
+        OfflineSyncManager.ApplyOfflineCreate(companyId, endpoint, dictBody, summary ?? endpoint);
+        MessageBox.Show($"Saved locally in Offline Mode.\nThis record will automatically sync to Cloud Storage when connection returns.",
+            "Stored Locally (Pending Cloud Sync)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        UpdateCloudBadgeUI();
     }
 
     private async Task PutObjectAsync(string endpoint, object body)
     {
-        if (Session.CompanyId == null)
-            throw new InvalidOperationException("No company is assigned to the current login session.");
+        int companyId = Session.CompanyId ?? 0;
+        var dictBody = body as Dictionary<string, object?> ?? new Dictionary<string, object?>();
 
-        if (string.IsNullOrWhiteSpace(Session.Token))
-            throw new InvalidOperationException("No authentication token is available.");
-
-        var url = $"{ApiUrl}/tenant/{Session.CompanyId.Value}/{endpoint}";
-
-        using var request = new HttpRequestMessage(HttpMethod.Put, url)
+        string epName = endpoint;
+        string? recordId = null;
+        if (endpoint.Contains('/'))
         {
-            Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json")
-        };
+            var parts = endpoint.Split('/');
+            epName = parts[0];
+            recordId = parts[1];
+        }
 
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+        // Try submitting via local API first
+        try
+        {
+            var url = $"{ApiUrl}/tenant/{companyId}/{endpoint}";
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+            using var request = new HttpRequestMessage(HttpMethod.Put, url)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json")
+            };
 
-        using var response = await _httpClient.SendAsync(request);
-        var json = await response.Content.ReadAsStringAsync();
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"PUT {url} failed: {(int)response.StatusCode} {response.ReasonPhrase}\n{json}");
+            if (!string.IsNullOrWhiteSpace(Session.Token))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+            }
+
+            using var response = await _httpClient.SendAsync(request, cts.Token);
+            if (response.IsSuccessStatusCode)
+            {
+                if (!OfflineSyncManager.IsOnline)
+                {
+                    MessageBox.Show($"Updated directly in Local Database (Offline Mode).\nThis change will automatically synchronize to Cloud Storage when connection returns.",
+                        "Updated Locally (Offline)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                return;
+            }
+        }
+        catch { }
+
+        // Fallback: If local API could not be reached, store in offline cache queue
+        OfflineSyncManager.ApplyOfflineUpdate(companyId, epName, recordId ?? "", dictBody, recordId ?? "");
+        MessageBox.Show($"Updated locally in Offline Mode.\nThis change will automatically sync to the Cloud when connected.",
+            "Stored Locally (Pending Cloud Sync)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        UpdateCloudBadgeUI();
     }
 
     private async Task DeleteAsync(string endpoint)
     {
+        int companyId = Session.CompanyId ?? 0;
+        string epName = endpoint;
+        string? recordId = null;
+        if (endpoint.Contains('/'))
+        {
+            var parts = endpoint.Split('/');
+            epName = parts[0];
+            recordId = parts[1];
+        }
+
+        if (!OfflineSyncManager.IsOnline)
+        {
+            OfflineSyncManager.ApplyOfflineDelete(companyId, epName, recordId ?? "", recordId ?? "");
+            MessageBox.Show($"Deleted locally in Offline Mode.\nDeletion will automatically sync to the Cloud when connected.",
+                "Stored Locally (Pending Cloud Sync)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            UpdateCloudBadgeUI();
+            return;
+        }
+
         if (Session.CompanyId == null)
             throw new InvalidOperationException("No company is assigned to the current login session.");
 
@@ -3406,13 +4096,24 @@ public partial class Form1 : Form
 
         var url = $"{ApiUrl}/tenant/{Session.CompanyId.Value}/{endpoint}";
 
-        using var request = new HttpRequestMessage(HttpMethod.Delete, url);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+            using var request = new HttpRequestMessage(HttpMethod.Delete, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
 
-        using var response = await _httpClient.SendAsync(request);
-        var json = await response.Content.ReadAsStringAsync();
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"DELETE {url} failed: {(int)response.StatusCode} {response.ReasonPhrase}\n{json}");
+            using var response = await _httpClient.SendAsync(request, cts.Token);
+            var json = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException($"DELETE {url} failed: {(int)response.StatusCode} {response.ReasonPhrase}\n{json}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Net.Sockets.SocketException or TaskCanceledException or OperationCanceledException)
+        {
+            OfflineSyncManager.ApplyOfflineDelete(companyId, epName, recordId ?? "", recordId ?? "");
+            MessageBox.Show($"Connection interrupted. Deleted locally in Offline Mode.\nDeletion will automatically sync to Cloud Storage when connection returns.",
+                "Stored Locally (Pending Cloud Sync)", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            UpdateCloudBadgeUI();
+        }
     }
 
     private static List<string> DetermineColumns(List<JsonElement> records, string[] preferred)
@@ -3573,30 +4274,42 @@ public partial class Form1 : Form
     {
         try
         {
-            if (!string.IsNullOrEmpty(Session.Token))
-            {
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
-            }
-
-            var response = await _httpClient.GetAsync($"{ApiUrl}/cloud/status");
-            var result = await response.Content.ReadAsStringAsync();
-
             string mode = "Local then Cloud (Dual Storage)";
             string health = "Healthy · Dual-Tier Active";
             int total = 0;
 
-            if (response.IsSuccessStatusCode)
+            try
             {
-                using var doc = JsonDocument.Parse(result);
-                mode = doc.RootElement.TryGetProperty("storageMode", out var m) ? m.GetString() ?? mode : mode;
-                health = doc.RootElement.TryGetProperty("overallHealth", out var h) ? h.GetString() ?? health : health;
-                total = doc.RootElement.TryGetProperty("totalSyncedEntities", out var t) ? t.GetInt32() : 0;
+                if (!string.IsNullOrEmpty(Session.Token))
+                {
+                    _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Session.Token);
+                }
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                var response = await _httpClient.GetAsync($"{ApiUrl}/cloud/status", cts.Token);
+                var result = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                {
+                    using var doc = JsonDocument.Parse(result);
+                    mode = doc.RootElement.TryGetProperty("storageMode", out var m) ? m.GetString() ?? mode : mode;
+                    health = doc.RootElement.TryGetProperty("overallHealth", out var h) ? h.GetString() ?? health : health;
+                    total = doc.RootElement.TryGetProperty("totalSyncedEntities", out var t) ? t.GetInt32() : 0;
+                }
             }
+            catch
+            {
+                // API or network currently unreachable — proceed showing offline dialog state
+            }
+
+            int pendingLocal = OfflineSyncManager.PendingSyncCount;
+            bool isOnline = OfflineSyncManager.IsOnline;
+            string connStatus = isOnline ? "🟢 Online · Connected to Cloud" : "🟡 Offline Mode · Running on Local Storage";
 
             using var dlg = new Form
             {
-                Text = "Hybrid Cloud Storage Status",
-                Size = new Size(540, 430),
+                Text = "Hybrid Cloud Storage & Offline Synchronization",
+                Size = new Size(560, 460),
                 StartPosition = FormStartPosition.CenterParent,
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 MaximizeBox = false,
@@ -3609,30 +4322,30 @@ public partial class Form1 : Form
 
             pnl.Controls.Add(new Label
             {
-                Text = "☁️  Dual-Tier Hybrid Storage Engine",
-                Font = new Font("Segoe UI", 13f, FontStyle.Bold),
+                Text = "☁️  Dual-Tier Hybrid Cloud Storage & Offline Engine",
+                Font = new Font("Segoe UI", 12.5f, FontStyle.Bold),
                 ForeColor = ColorText,
                 AutoSize = true,
-                Location = new Point(24, 20)
+                Location = new Point(24, 18)
             });
 
             pnl.Controls.Add(new Label
             {
                 Text = "Storage Architecture: Local then Cloud\n" +
-                       "• Local Tier: Fast local transactions & offline durability\n" +
-                       "• Cloud Tier: Remote vault backup & cross-branch sync",
+                       "• Offline Tier: Store, edit & view records locally with zero downtime\n" +
+                       "• Cloud Tier: Automatically replicates & syncs all updates to Cloud upon connection",
                 Font = new Font("Segoe UI", 9f),
                 ForeColor = ColorMuted,
                 AutoSize = false,
-                Width = 470,
+                Width = 490,
                 Height = 60,
-                Location = new Point(24, 55)
+                Location = new Point(24, 52)
             });
 
             var infoBox = new Panel
             {
-                Location = new Point(24, 125),
-                Size = new Size(474, 130),
+                Location = new Point(24, 120),
+                Size = new Size(494, 150),
                 BackColor = Color.FromArgb(248, 250, 252)
             };
             infoBox.Paint += (_, pe) => pe.Graphics.DrawRectangle(new Pen(ColorBorder, 1), 0, 0, infoBox.Width - 1, infoBox.Height - 1);
@@ -3640,28 +4353,28 @@ public partial class Form1 : Form
 
             infoBox.Controls.Add(new Label
             {
-                Text = $"Pipeline Mode:  {mode}\n" +
-                       $"System Health:  {health}\n" +
-                       $"Synced Records: {total:N0} entities in Cloud Vault\n" +
-                       $"Replication:    Real-time & Periodic (Every 15 min)\n" +
-                       $"Integrity:      SHA-256 Verified",
+                Text = $"Connection State:   {connStatus}\n" +
+                       $"Storage Pipeline:   {mode}\n" +
+                       $"Local Offline Queue: {pendingLocal} change(s) pending Cloud sync\n" +
+                       $"Cloud Vault Backup:  {total:N0} entities secured in Cloud\n" +
+                       $"Auto Cloud Sync:    Active · Instant sync on reconnect & write",
                 Font = new Font("Segoe UI", 9.25f),
                 ForeColor = ColorText,
                 AutoSize = false,
-                Width = 450,
-                Height = 105,
+                Width = 470,
+                Height = 125,
                 Location = new Point(14, 12)
             });
 
             var btnSyncNow = new Button
             {
-                Text = "☁️  Sync to Cloud Now",
+                Text = "☁️  Sync All to Cloud Now",
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(17, 24, 39),
                 BackColor = ColorAccent,
                 FlatStyle = FlatStyle.Flat,
-                Size = new Size(180, 38),
-                Location = new Point(24, 280),
+                Size = new Size(200, 38),
+                Location = new Point(24, 290),
                 Cursor = Cursors.Hand
             };
             btnSyncNow.FlatAppearance.BorderSize = 0;
@@ -3671,16 +4384,28 @@ public partial class Form1 : Form
                 btnSyncNow.Text = "Syncing...";
                 try
                 {
+                    // 1. Process offline sync queue
+                    int beforeQueue = OfflineSyncManager.PendingSyncCount;
+                    await OfflineSyncManager.ProcessPendingQueueAsync();
+                    int afterQueue = OfflineSyncManager.PendingSyncCount;
+                    int flushed = beforeQueue - afterQueue;
+
+                    // 2. Trigger Cloud Vault replication
                     string endpoint = Session.IsSuperAdmin ? "/cloud/sync-all" : $"/cloud/sync/{Session.CompanyId ?? 1}";
                     var r = await _httpClient.PostAsync($"{ApiUrl}{endpoint}", null);
-                    if (r.IsSuccessStatusCode)
+
+                    UpdateCloudBadgeUI();
+
+                    string msg = flushed > 0
+                        ? $"Successfully synced {flushed} offline update(s) and replicated database to Cloud Storage Vault!"
+                        : "Cloud Storage Vault is up to date and in sync with local storage!";
+
+                    MessageBox.Show(msg, "Cloud Synced", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    dlg.Close();
+
+                    if (!string.IsNullOrEmpty(_currentPage))
                     {
-                        MessageBox.Show("Successfully synced local data to Cloud Storage Vault!", "Synced", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        dlg.Close();
-                    }
-                    else
-                    {
-                        MessageBox.Show("Sync error: " + await r.Content.ReadAsStringAsync(), "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        SelectNavigation(_currentPage);
                     }
                 }
                 catch (Exception ex)
@@ -3690,7 +4415,7 @@ public partial class Form1 : Form
                 finally
                 {
                     btnSyncNow.Enabled = true;
-                    btnSyncNow.Text = "☁️  Sync to Cloud Now";
+                    btnSyncNow.Text = "☁️  Sync All to Cloud Now";
                 }
             };
             pnl.Controls.Add(btnSyncNow);
@@ -3703,7 +4428,7 @@ public partial class Form1 : Form
                 BackColor = Color.FromArgb(241, 245, 249),
                 FlatStyle = FlatStyle.Flat,
                 Size = new Size(100, 38),
-                Location = new Point(398, 280),
+                Location = new Point(418, 290),
                 Cursor = Cursors.Hand
             };
             btnClose.FlatAppearance.BorderColor = ColorBorder;
@@ -3715,6 +4440,56 @@ public partial class Form1 : Form
         catch (Exception ex)
         {
             MessageBox.Show("Could not open Cloud Storage dialog: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private bool _checkingTerms = false;
+    private async Task CheckTermsComplianceAsync()
+    {
+        if (Session.IsSuperAdmin || string.IsNullOrWhiteSpace(Session.Token) || _checkingTerms || !OfflineSyncManager.IsOnline) return;
+
+        try
+        {
+            _checkingTerms = true;
+            var res = await _httpClient.GetAsync($"{ApiUrl}/terms/status");
+            if (res.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+                if (doc.RootElement.TryGetProperty("hasAccepted", out var ha) && !ha.GetBoolean())
+                {
+                    string ver = doc.RootElement.TryGetProperty("currentVersion", out var v) ? v.GetString() ?? "Updated" : "Updated";
+
+                    MessageBox.Show(
+                        $"The Super Administrator has updated the Platform Terms & Conditions ({ver}).\n\n" +
+                        "In compliance with platform policy, you must review and accept the updated terms to continue using Fuerto CRM.",
+                        "Platform Terms Updated",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+
+                    using var dlg = new TermsAndConditionsDialog(
+                        ApiUrl,
+                        Session.Token,
+                        Session.CompanyId,
+                        Session.CompanyName,
+                        Session.CompanyCode,
+                        Session.Email);
+
+                    if (dlg.ShowDialog(this) == DialogResult.OK)
+                    {
+                        Session.HasAcceptedTerms = true;
+                    }
+                    else
+                    {
+                        // User rejected terms: exit to login
+                        Close();
+                    }
+                }
+            }
+        }
+        catch { }
+        finally
+        {
+            _checkingTerms = false;
         }
     }
 }

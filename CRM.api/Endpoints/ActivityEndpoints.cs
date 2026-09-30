@@ -1,4 +1,4 @@
-﻿using CRM.api.Security;
+using CRM.api.Security;
 using CRM.domain.Entities;
 using CRM.infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -113,7 +113,7 @@ public static class ActivityEndpoints
                 .Include(x => x.Lead)
                 .Include(x => x.Project)
                 .Where(x => x.CompanyId == companyId)
-                .OrderByDescending(x => x.ActivityDate)
+                .OrderByDescending(x => x.ActivityId)
                 .ToListAsync();
 
             return Results.Ok(activities);

@@ -25,6 +25,8 @@ public static class BiEndpoints
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
+            try
+            {
             await using var db = await tenantFactory.CreateAsync(companyId);
 
             var now = DateTime.UtcNow;
@@ -152,6 +154,11 @@ public static class BiEndpoints
                 // Generated
                 computedAt = now
             });
+            }
+            catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException || ex is System.ComponentModel.Win32Exception || ex.InnerException is Microsoft.Data.SqlClient.SqlException)
+            {
+                return Results.Json(new { error = "Database unavailable. Using offline mode — data may not be current.", offline = true }, statusCode: 503);
+            }
         });
 
 
@@ -166,6 +173,8 @@ public static class BiEndpoints
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
+            try
+            {
             await using var db = await tenantFactory.CreateAsync(companyId);
 
             var now = DateTime.UtcNow;
@@ -223,10 +232,11 @@ public static class BiEndpoints
                 var myQuotes = quotations.Where(q => q.CustomerId == c.CustomerId).ToList();
 
                 var projectCount = myProjects.Count;
-                if (projectCount == 0) continue; // skip customers with no history
 
-                var lastProjectDate = myProjects.Max(p => p.CreatedAt);
-                var daysSinceLastProject = (int)(now - lastProjectDate).TotalDays;
+                var lastProjectDate = projectCount > 0 ? myProjects.Max(p => p.CreatedAt) : (DateTime?)null;
+                var daysSinceLastProject = lastProjectDate.HasValue 
+                    ? (int)(now - lastProjectDate.Value).TotalDays 
+                    : (int)(now - c.CreatedAt).TotalDays;
 
                 var ratingAvg = myFeedbacks.Any()
                     ? (double?)Math.Round(myFeedbacks.Average(f => f.OverallRating), 2) : null;
@@ -235,13 +245,78 @@ public static class BiEndpoints
                 var openIssueCount = myIssues.Count(i =>
                     i.Status == "Open" || i.Status == "InProgress");
 
-                // ---- Apply segment rules (in priority order) ----
+                // ---- Apply segment rules (respecting explicit customer loyalty tier if set) ----
                 string segment;
                 string basis;
                 string action;
                 int priority;
 
-                if (projectCount >= 2 && ratingAvg >= 4.5 && daysSinceLastProject <= 180)
+                var explicitType = (c.CustomerType ?? "").Trim();
+
+                if (string.Equals(explicitType, "Champion", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(explicitType, "VIP", StringComparison.OrdinalIgnoreCase))
+                {
+                    segment = "Champion";
+                    basis = projectCount > 0
+                        ? $"Tier: Champion · {projectCount} projects · avg {ratingAvg:F1}★ · {daysSinceLastProject}d"
+                        : $"Tier: Champion · Registered {daysSinceLastProject} days ago · 0 projects";
+                    action = "Send VIP appreciation email + premium rewards";
+                    priority = 1;
+                }
+                else if (string.Equals(explicitType, "Loyal", StringComparison.OrdinalIgnoreCase))
+                {
+                    segment = "Loyal";
+                    basis = projectCount > 0
+                        ? $"Tier: Loyal · {projectCount} projects · avg {ratingAvg:F1}★ · {daysSinceLastProject}d"
+                        : $"Tier: Loyal · Registered {daysSinceLastProject} days ago · 0 projects";
+                    action = "Offer 10% loyalty discount + quarterly check-in";
+                    priority = 2;
+                }
+                else if (string.Equals(explicitType, "Detractor", StringComparison.OrdinalIgnoreCase))
+                {
+                    segment = "Detractor";
+                    basis = $"Tier: Detractor · Escalate for service recovery";
+                    action = "Personal apology call + free consultation";
+                    priority = 3;
+                }
+                else if (string.Equals(explicitType, "Promising", StringComparison.OrdinalIgnoreCase))
+                {
+                    segment = "Promising";
+                    basis = projectCount > 0
+                        ? $"Tier: Promising · {projectCount} project(s) · {daysSinceLastProject}d"
+                        : $"Tier: Promising · Registered {daysSinceLastProject} days ago";
+                    action = "Call to discuss next room or property";
+                    priority = 4;
+                }
+                else if (string.Equals(explicitType, "At Risk", StringComparison.OrdinalIgnoreCase))
+                {
+                    segment = "At Risk";
+                    basis = $"Tier: At Risk · Inactive {daysSinceLastProject} days";
+                    action = "Win-back email + 15% discount";
+                    priority = 5;
+                }
+                else if (string.Equals(explicitType, "Dormant", StringComparison.OrdinalIgnoreCase))
+                {
+                    segment = "Dormant";
+                    basis = $"Tier: Dormant · Inactive {daysSinceLastProject} days";
+                    action = "Final reactivation attempt";
+                    priority = 7;
+                }
+                else if (string.Equals(explicitType, "Lost", StringComparison.OrdinalIgnoreCase))
+                {
+                    segment = "Lost";
+                    basis = $"Tier: Lost · Inactive {daysSinceLastProject} days";
+                    action = "Add to quarterly newsletter only";
+                    priority = 6;
+                }
+                else if (projectCount == 0)
+                {
+                    segment = "Active";
+                    basis = $"Registered {daysSinceLastProject} days ago · 0 projects completed";
+                    action = "Send onboarding welcome email + initial consultation offer";
+                    priority = 20;
+                }
+                else if (projectCount >= 2 && ratingAvg >= 4.5 && daysSinceLastProject <= 180)
                 {
                     segment = "Champion";
                     basis = $"{projectCount} projects · avg {ratingAvg:F1}★ · {daysSinceLastProject} days since last project";
@@ -294,8 +369,8 @@ public static class BiEndpoints
                 {
                     segment = "Active";
                     basis = $"Recent activity within 12 months";
-                    action = "No action required";
-                    priority = 99;
+                    action = "Send check-in email + loyalty reward offer";
+                    priority = 10;
                 }
 
                 result.Add(new
@@ -326,6 +401,11 @@ public static class BiEndpoints
                 .ToList();
 
             return Results.Ok(sorted);
+            }
+            catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException || ex is System.ComponentModel.Win32Exception || ex.InnerException is Microsoft.Data.SqlClient.SqlException)
+            {
+                return Results.Json(new { error = "Database unavailable. Using offline mode — retention data may not be current.", offline = true }, statusCode: 503);
+            }
         });
 
 
@@ -336,26 +416,41 @@ public static class BiEndpoints
         group.MapGet("/designers", async (
             int companyId,
             HttpContext http,
-            UserManager<ApplicationUser> userManager,
+            UserManager<ApplicationUser> userManager,   
             ITenantDbContextFactory tenantFactory) =>
         {
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
             // Get all users in this company
-            var users = userManager.Users
-                .Where(u => u.CompanyId == companyId)
-                .ToList();
+            // If cloud is offline the Identity store may be unreachable — return empty list gracefully.
+            List<ApplicationUser> users;
+            try
+            {
+                users = userManager.Users
+                    .Where(u => u.CompanyId == companyId)
+                    .ToList();
+            }
+            catch
+            {
+                users = new List<ApplicationUser>();
+            }
 
             // Filter to Staff members only
             var designers = new List<ApplicationUser>();
             foreach (var u in users)
             {
-                if (await userManager.IsInRoleAsync(u, "Staff"))
-                    designers.Add(u);
+                try
+                {
+                    if (await userManager.IsInRoleAsync(u, "Staff"))
+                        designers.Add(u);
+                }
+                catch { /* skip if role check fails offline */ }
             }
 
             // Get tenant DB to compute stats
+            try
+            {
             await using var db = await tenantFactory.CreateAsync(companyId);
 
             var designerIds = designers.Select(d => d.Id).ToList();
@@ -463,6 +558,11 @@ public static class BiEndpoints
             }
 
             return Results.Ok(result);
+            }
+            catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException || ex is System.ComponentModel.Win32Exception || ex.InnerException is Microsoft.Data.SqlClient.SqlException)
+            {
+                return Results.Json(new { error = "Database unavailable. Designers data not available in offline mode.", offline = true }, statusCode: 503);
+            }
         })
         .RequireAuthorization();
 
@@ -478,6 +578,8 @@ public static class BiEndpoints
             if (!TenantAuthorization.IsAuthorized(http, companyId))
                 return Results.Forbid();
 
+            try
+            {
             await using var db = await tenantFactory.CreateAsync(companyId);
 
             var cutoff = DateTime.UtcNow.AddMonths(-12);
@@ -530,6 +632,11 @@ public static class BiEndpoints
             }).ToList();
 
             return Results.Ok(result);
+            }
+            catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException || ex is System.ComponentModel.Win32Exception || ex.InnerException is Microsoft.Data.SqlClient.SqlException)
+            {
+                return Results.Json(new { error = "Database unavailable. Revenue data not available in offline mode.", offline = true }, statusCode: 503);
+            }
         });
 
        
@@ -652,6 +759,12 @@ public static class BiEndpoints
                 Notes = $"Basis: {request.Basis ?? "n/a"}  ·  By: {userName}"
             });
 
+            // If customer status/loyalty tier was updated
+            if (!string.IsNullOrWhiteSpace(request.NewCustomerStatus))
+            {
+                customer.CustomerType = request.NewCustomerStatus.Trim();
+            }
+
             await db.SaveChangesAsync();
 
             return Results.Created(
@@ -670,8 +783,55 @@ public static class BiEndpoints
                     offerValue = action.OfferValue,
                     offerDescription = action.OfferDescription,
                     actionTaken = action.ActionTaken,
+                    newCustomerStatus = customer.CustomerType,
                     createdAt = action.CreatedAt
                 });
+        })
+        .RequireAuthorization();
+
+
+        // ============================================================
+        // UPDATE CUSTOMER STATUS / LOYALTY TIER DIRECTLY
+        // ============================================================
+        group.MapPut("/customers/{customerId:int}/status", async (
+            int companyId,
+            int customerId,
+            CustomerStatusUpdateDto dto,
+            HttpContext http,
+            ITenantDbContextFactory tenantFactory) =>
+        {
+            if (!TenantAuthorization.IsAuthorized(http, companyId))
+                return Results.Forbid();
+
+            if (string.IsNullOrWhiteSpace(dto.Status))
+                return Results.BadRequest(new { message = "Status cannot be empty." });
+
+            await using var db = await tenantFactory.CreateAsync(companyId);
+            var customer = await db.Customers.FirstOrDefaultAsync(c => c.CustomerId == customerId && c.CompanyId == companyId);
+            if (customer is null)
+                return Results.NotFound(new { message = "Customer not found." });
+
+            var oldStatus = customer.CustomerType;
+            customer.CustomerType = dto.Status.Trim();
+
+            db.Activities.Add(new CRM.domain.Entities.Activity
+            {
+                CompanyId = companyId,
+                CustomerId = customer.CustomerId,
+                ActivityType = "StatusChange",
+                Subject = $"Customer loyalty tier updated to {customer.CustomerType}",
+                Description = $"Customer status changed from '{oldStatus}' to '{customer.CustomerType}'.",
+                ActivityDate = DateTime.UtcNow
+            });
+
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                message = $"Customer status successfully updated to {customer.CustomerType}.",
+                customerId = customer.CustomerId,
+                status = customer.CustomerType
+            });
         })
         .RequireAuthorization();
 
@@ -697,6 +857,9 @@ public static class BiEndpoints
 
         // ---- NEW: link to a promotion ----
         public int? PromotionId { get; set; }
+
+        // ---- Customer status / loyalty tier change ----
+        public string? NewCustomerStatus { get; set; }
 
         public string? Notes { get; set; }
         public string? Source { get; set; }

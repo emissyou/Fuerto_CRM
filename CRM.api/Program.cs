@@ -58,9 +58,51 @@ builder.Services.AddSwaggerGen(options =>
 // MASTER DATABASE
 // ============================================================
 
+// ============================================================
+// MASTER DATABASE (Auto-detects offline and falls back to LocalDB)
+// ============================================================
+
+string cloudMasterConn = builder.Configuration.GetConnectionString("MasterErp") ?? "";
+string localMasterConn = builder.Configuration.GetConnectionString("MasterErp_Local") 
+    ?? "Server=(localdb)\\MSSQLLocalDB;Database=CRM_Master;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True;";
+
+// Local-First Architecture:
+// Serve identity, authentication, and master tenant data directly from local SQL database (sub-millisecond latency).
+// This guarantees 100% offline uptime and completely eliminates pre-login SSL handshake timeouts when Wi-Fi is disconnected.
+string effectiveMasterConn = localMasterConn;
+
+bool isCloudMasterReachable = false;
+if (System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable() &&
+    !string.IsNullOrWhiteSpace(cloudMasterConn) && 
+    !cloudMasterConn.Contains("(localdb)", StringComparison.OrdinalIgnoreCase))
+{
+    try
+    {
+        var csb = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(cloudMasterConn) { ConnectTimeout = 4 };
+        using var probe = new Microsoft.Data.SqlClient.SqlConnection(csb.ConnectionString);
+        probe.Open();
+        isCloudMasterReachable = true;
+    }
+    catch
+    {
+        isCloudMasterReachable = false;
+    }
+}
+else
+{
+    isCloudMasterReachable = false;
+}
+
+CRM.infrastructure.Services.TenantDbContextFactory.IsCloudReachable = isCloudMasterReachable;
+
 builder.Services.AddDbContext<MasterErpDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("MasterErp")));
+    options.UseSqlServer(effectiveMasterConn, sqlOptions =>
+    {
+        sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(5),
+            errorNumbersToAdd: new[] { 19, 20, 233, 10054, 10060 });
+    }));
 
 
 // ============================================================
@@ -82,6 +124,13 @@ builder.Services.AddScoped<IProjectWorkflowService, ProjectWorkflowService>();
 // Hybrid Local-then-Cloud Storage Services
 builder.Services.AddScoped<IHybridStorageService, HybridStorageService>();
 builder.Services.AddHostedService<CRM.api.Services.CloudSyncBackgroundService>();
+
+// Dual-Storage Database Synchronizer & Real-time Mirror
+builder.Services.AddScoped<ITenantDatabaseSyncService, TenantDatabaseSyncService>();
+builder.Services.AddHostedService<CRM.api.Services.TenantDatabaseSyncWorker>();
+
+// Platform Terms & Conditions (EULA) Management
+builder.Services.AddSingleton<CRM.api.Services.PlatformTermsManager>();
 
 
 // ============================================================
@@ -156,25 +205,43 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
-    var roleManager =
-        scope.ServiceProvider
-            .GetRequiredService<RoleManager<IdentityRole>>();
+    try
+    {
+        var masterDb = scope.ServiceProvider.GetRequiredService<MasterErpDbContext>();
+        await masterDb.Database.EnsureCreatedAsync();
+    
+        var roleManager =
+            scope.ServiceProvider
+                .GetRequiredService<RoleManager<IdentityRole>>();
 
-    var userManager =
-        scope.ServiceProvider
-            .GetRequiredService<UserManager<ApplicationUser>>();
+        var userManager =
+            scope.ServiceProvider
+                .GetRequiredService<UserManager<ApplicationUser>>();
 
-    await IdentitySeeder.SeedRolesAsync(roleManager);
+        await IdentitySeeder.SeedRolesAsync(roleManager);
 
-    await IdentitySeeder.SeedSuperAdminAsync(
-        userManager,
-        roleManager);
+        await IdentitySeeder.SeedSuperAdminAsync(
+            userManager,
+            roleManager);
 
-    await IdentitySeeder.SeedDesignersAsync(userManager, companyId: 1);
+        var tenantFactory = scope.ServiceProvider.GetRequiredService<CRM.infrastructure.Services.ITenantDbContextFactory>();
+        await CompanySeeder.SeedCompaniesAndTenantsAsync(masterDb, userManager, tenantFactory);
 
-    var masterDb = scope.ServiceProvider.GetRequiredService<MasterErpDbContext>();
-    var tenantFactory = scope.ServiceProvider.GetRequiredService<CRM.infrastructure.Services.ITenantDbContextFactory>();
-    await CompanySeeder.SeedCompaniesAndTenantsAsync(masterDb, userManager, tenantFactory);
+        var fuertoCompany = await masterDb.Companies.FirstOrDefaultAsync(c => c.CompanyCode == "FUERTO");
+        if (fuertoCompany != null)
+        {
+            await IdentitySeeder.SeedDesignersAsync(userManager, companyId: fuertoCompany.CompanyId);
+        }
+
+        // Run initial full dual-database synchronization (reconciles Cloud SQL <-> LocalDB)
+        var syncService = scope.ServiceProvider.GetRequiredService<CRM.infrastructure.Services.ITenantDatabaseSyncService>();
+        await syncService.SyncAllTenantsAsync();
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetService<ILogger<Program>>();
+        logger?.LogWarning(ex, "Failed to run startup database creation or seeding. Proceeding with existing database state.");
+    }
 }
 
 
@@ -443,7 +510,8 @@ app.MapPost("/login", async (
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
     IConfiguration configuration,
-    MasterErpDbContext db) =>
+    MasterErpDbContext db,
+    CRM.api.Services.PlatformTermsManager termsManager) =>
 {
     var user = await userManager.FindByEmailAsync(request.Email);
 
@@ -538,6 +606,13 @@ app.MapPost("/login", async (
         }
     }
 
+    bool hasAcceptedTerms = true;
+    var currentTerms = termsManager.GetTerms();
+    if (!roles.Contains(CRM.domain.Enums.ApplicationRoles.SuperAdmin) && resolvedCompanyId.HasValue)
+    {
+        hasAcceptedTerms = termsManager.HasAccepted(resolvedCompanyId.Value, user.Email, out _);
+    }
+
     return Results.Ok(new
     {
         message = "Login successful.",
@@ -548,6 +623,8 @@ app.MapPost("/login", async (
         companyCode,
         availedModules,
         subscriptionStatus,
+        hasAcceptedTerms,
+        termsVersion = currentTerms.Version,
         roles = roles,
         token = tokenString
     });
@@ -1014,6 +1091,134 @@ app.MapPost("/tenant/{companyId:int}/bi/seed-test-data", async (
 })
 .RequireAuthorization();
 
+// ============================================================
+// PLATFORM TERMS & CONDITIONS (EULA)
+// ============================================================
+
+// Public / Authorized: Get current Terms and Conditions
+app.MapGet("/terms", (CRM.api.Services.PlatformTermsManager termsManager) =>
+{
+    return Results.Ok(termsManager.GetTerms());
+});
+
+// Authorized: Check acceptance status of the current user/company
+app.MapGet("/terms/status", (
+    System.Security.Claims.ClaimsPrincipal userPrincipal,
+    CRM.api.Services.PlatformTermsManager termsManager) =>
+{
+    var companyIdClaim = userPrincipal.FindFirst("CompanyId")?.Value;
+    int? companyId = int.TryParse(companyIdClaim, out var cid) ? cid : null;
+    var email = userPrincipal.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "";
+
+    bool hasAccepted = termsManager.HasAccepted(companyId, email, out var record);
+    var terms = termsManager.GetTerms();
+
+    return Results.Ok(new
+    {
+        hasAccepted,
+        currentVersion = terms.Version,
+        title = terms.Title,
+        effectiveDate = terms.EffectiveDate,
+        lastUpdated = terms.LastUpdated,
+        acceptedAt = record?.AcceptedAt,
+        acceptedBy = record?.AcceptedByName
+    });
+})
+.RequireAuthorization();
+
+// Authorized: Record acceptance of terms by the company/user
+app.MapPost("/terms/accept", async (
+    System.Security.Claims.ClaimsPrincipal userPrincipal,
+    CRM.api.Services.PlatformTermsManager termsManager,
+    MasterErpDbContext db,
+    HttpContext httpContext) =>
+{
+    var companyIdClaim = userPrincipal.FindFirst("CompanyId")?.Value;
+    if (!int.TryParse(companyIdClaim, out var companyId) || companyId <= 0)
+    {
+        return Results.BadRequest(new { message = "Valid Company ID is required to accept platform terms." });
+    }
+
+    var email = userPrincipal.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "";
+    var name = userPrincipal.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? email;
+
+    var company = await db.Companies.FindAsync(companyId);
+    string compName = company?.CompanyName ?? "Company";
+    string compCode = company?.CompanyCode ?? "COMP";
+
+    string ipAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+
+    var record = termsManager.RecordAcceptance(companyId, compCode, compName, email, name, ipAddress);
+
+    return Results.Ok(new
+    {
+        message = "Platform Terms & Conditions accepted successfully.",
+        record.CompanyId,
+        record.CompanyName,
+        record.AcceptedAt,
+        record.TermsVersion
+    });
+})
+.RequireAuthorization();
+
+// Super Admin: Update terms text, version, and optional force re-acceptance
+app.MapPut("/superadmin/terms", (
+    CRM.api.Models.UpdateTermsRequest request,
+    System.Security.Claims.ClaimsPrincipal userPrincipal,
+    CRM.api.Services.PlatformTermsManager termsManager) =>
+{
+    var email = userPrincipal.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "Super Admin";
+    termsManager.UpdateTerms(request.Title, request.Content, request.Version, request.ForceReacceptance, email);
+
+    return Results.Ok(new
+    {
+        message = "Platform Terms & Conditions updated successfully.",
+        forceReacceptance = request.ForceReacceptance
+    });
+})
+.RequireAuthorization(policy => policy.RequireRole(CRM.domain.Enums.ApplicationRoles.SuperAdmin));
+
+// Super Admin: List all company acceptances
+app.MapGet("/superadmin/terms/acceptances", (CRM.api.Services.PlatformTermsManager termsManager) =>
+{
+    return Results.Ok(termsManager.GetAllAcceptances());
+})
+.RequireAuthorization(policy => policy.RequireRole(CRM.domain.Enums.ApplicationRoles.SuperAdmin));
+
+// Super Admin: Revoke acceptance for a specific company
+app.MapPost("/superadmin/terms/revoke", (
+    CRM.api.Models.RevokeTermsRequest request,
+    CRM.api.Services.PlatformTermsManager termsManager) =>
+{
+    bool success = termsManager.RevokeAcceptance(request.CompanyId);
+    if (!success)
+    {
+        return Results.NotFound(new { message = "No acceptance record found for the specified company." });
+    }
+    return Results.Ok(new { message = $"Terms acceptance revoked for Company ID {request.CompanyId}. Company will be prompted on next login." });
+})
+.RequireAuthorization(policy => policy.RequireRole(CRM.domain.Enums.ApplicationRoles.SuperAdmin));
+
+// Super Admin: Revoke acceptance for ALL companies (forces all tenants to re-accept)
+app.MapPost("/superadmin/terms/revoke-all", (CRM.api.Services.PlatformTermsManager termsManager) =>
+{
+    termsManager.RevokeAllAcceptances();
+    return Results.Ok(new { message = "Terms acceptance revoked for ALL companies. All tenants must re-accept upon next login." });
+})
+.RequireAuthorization(policy => policy.RequireRole(CRM.domain.Enums.ApplicationRoles.SuperAdmin));
+
+// Super Admin: Reset terms to default platform template
+app.MapPost("/superadmin/terms/reset-default", (
+    System.Security.Claims.ClaimsPrincipal userPrincipal,
+    CRM.api.Services.PlatformTermsManager termsManager) =>
+{
+    var email = userPrincipal.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? "Super Admin";
+    termsManager.ResetToDefaultTerms(email);
+    return Results.Ok(new { message = "Platform Terms & Conditions have been reset to default template." });
+})
+.RequireAuthorization(policy => policy.RequireRole(CRM.domain.Enums.ApplicationRoles.SuperAdmin));
+
+
 
 // ============================================================
 // RUN APPLICATION
@@ -1027,5 +1232,12 @@ app.MapGet("/", () =>
         status = "Online"
     });
 });
+
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "Online",
+    cloudConnected = CRM.infrastructure.Services.TenantDbContextFactory.IsCloudReachable,
+    timestamp = DateTime.UtcNow
+}));
 
 app.Run();

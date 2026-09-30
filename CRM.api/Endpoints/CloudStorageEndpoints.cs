@@ -18,16 +18,18 @@ public static class CloudStorageEndpoints
         .RequireAuthorization();
 
         // 2. TRIGGER SYNC FOR A SINGLE TENANT (Local DB ➔ Cloud Vault)
-        app.MapPost("/cloud/sync/{companyId:int}", async (int companyId, IHybridStorageService storage) =>
+        app.MapPost("/cloud/sync/{companyId:int}", async (int companyId, IHybridStorageService storage, ITenantDatabaseSyncService dbSync) =>
         {
+            try { await dbSync.SyncCompanyAsync(companyId); } catch { }
             var result = await storage.SyncTenantToCloudAsync(companyId);
             return result.Success ? Results.Ok(result) : Results.BadRequest(result);
         })
         .RequireAuthorization();
 
         // 3. TRIGGER SYNC FOR ALL ACTIVE TENANTS
-        app.MapPost("/cloud/sync-all", async (IHybridStorageService storage) =>
+        app.MapPost("/cloud/sync-all", async (IHybridStorageService storage, ITenantDatabaseSyncService dbSync) =>
         {
+            try { await dbSync.SyncAllTenantsAsync(); } catch { }
             var results = await storage.SyncAllTenantsToCloudAsync();
             return Results.Ok(new
             {
